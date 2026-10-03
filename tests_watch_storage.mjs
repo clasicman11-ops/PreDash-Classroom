@@ -20,6 +20,13 @@ const ack = call({operation: 'save', request_id: 'session1:save', payload: chang
 assert.equal(ack.result.status, 'saved');
 assert.equal(call({operation: 'save', request_id: 'session1:save', payload: changed}, ack.parent).result, undefined, 'same request must not trigger an endless rerun');
 assert.equal(call({operation: 'load', request_id: 'session2:load'}).result.payload, changed);
+const twenty = JSON.stringify({version: 1, codes: Array.from({length: 20}, (_, i) => String(i).padStart(6, '0')),
+    groups: {'000019': '보유종목'}, sectors: {'000019': '반도체'}});
+call({operation: 'save', request_id: 'session2:twenty', payload: twenty});
+const restored = JSON.parse(call({operation: 'load', request_id: 'session3:twenty'}).result.payload);
+assert.equal(restored.codes.length, 20);
+assert.equal(restored.groups['000019'], '보유종목');
+assert.equal(restored.sectors['000019'], '반도체');
 const empty = JSON.stringify({version: 1, codes: []});
 call({operation: 'save', request_id: 'session2:clear', payload: empty});
 assert.equal(call({operation: 'load', request_id: 'session3:load'}).result.payload, empty, 'intentional deletion must stay deleted');

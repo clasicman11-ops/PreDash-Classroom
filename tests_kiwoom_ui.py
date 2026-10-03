@@ -2,10 +2,12 @@
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+import json
 
 from streamlit.testing.v1 import AppTest
 from predash.kiwoom import Kiwoom
 from predash.macro import MacroError
+from predash.official import Official
 from predash.watchlist import export_backup
 
 APP = Path(__file__).with_name('app.py')
@@ -189,6 +191,86 @@ class KiwoomUITests(unittest.TestCase):
         self.connect('demo')
         self.assertEqual(at.session_state.watch_codes, ['000660'])
         self.assertEqual(at.session_state.watch_storage_nonce, nonce)
+
+    def test_watchlist_twenty_limit_groups_filters_and_reopening(self):
+        codes=[f'{i:06d}' for i in range(20)]
+        self.browser_payload=export_backup(codes[:19])
+        at=self.fresh_session(page='관심종목').run()
+        self.assertFalse(at.exception)
+        by_label(at.text_input,'종목코드로 바로 추가').set_value(codes[19])
+        by_label(at.button,'종목코드 저장').click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(len(at.session_state.watch_codes),20)
+        self.assertEqual(len(by_label(at.multiselect,'조회할 종목 선택').value),5)
+        by_label(at.text_input,'종목코드로 바로 추가').set_value('999999')
+        by_label(at.button,'종목코드 저장').click().run()
+        self.assertEqual(len(at.session_state.watch_codes),20)
+        self.assertTrue(any('최대 20개' in w.value for w in at.warning))
+        by_label(at.selectbox,'분류할 종목').set_value(codes[19]).run()
+        by_label(at.selectbox,'관심종목 분류').set_value('보유종목')
+        by_label(at.text_input,'섹터 이름').set_value('반도체')
+        by_label(at.button,'분류 저장').click().run()
+        self.assertFalse(at.exception)
+        reopened=self.fresh_session(page='관심종목').run()
+        self.assertFalse(reopened.exception)
+        self.assertEqual(reopened.session_state.watch_groups[codes[19]],'보유종목')
+        self.assertEqual(reopened.session_state.watch_sectors[codes[19]],'반도체')
+        self.at=reopened
+        by_label(reopened.radio,'메뉴').set_value('연결 설정').run()
+        self.connect('demo')
+        by_label(reopened.radio,'메뉴').set_value('관심종목').run()
+        self.assertEqual(reopened.session_state.watch_groups[codes[19]],'보유종목')
+        self.assertEqual(reopened.session_state.watch_sectors[codes[19]],'반도체')
+        by_label(reopened.selectbox,'표시할 분류').set_value('보유종목').run()
+        self.assertEqual(by_label(reopened.multiselect,'조회할 종목 선택').value,[codes[19]])
+        by_label(reopened.selectbox,'표시할 섹터').set_value('반도체').run()
+        by_label(reopened.button,'목록에서 제거').click().run()
+        self.assertFalse(reopened.exception)
+        self.assertNotIn(codes[19],reopened.session_state.watch_groups)
+        self.assertNotIn(codes[19],reopened.session_state.watch_sectors)
+        restored=self.fresh_session(page='관심종목').run()
+        self.assertEqual(len(restored.session_state.watch_codes),19)
+
+    def test_selective_queries_reuse_and_force_only_selected_with_no_background_calls(self):
+        self.browser_payload=export_backup(['005930','000660','035420'])
+        at=self.fresh_session(page='관심종목')
+        at.session_state.classroom_api_keys={'DATA_GO_KR_SERVICE_KEY':'dummy-price'}
+        lamp={'state':'상승 구간','close':1,'date':'2026-10-02','ma10':1,'ma20':1}
+        with patch.object(Official,'price_history',return_value=[]) as history, \
+             patch.object(Official,'search',side_effect=AssertionError('No automatic background lookup')), \
+             patch('predash.market.stock_lamp',return_value=lamp), \
+             patch('predash.market.price_trend',return_value=[]), \
+             patch('predash.macro.benchmark',return_value=None):
+            at.run()
+            self.assertFalse(at.exception)
+            history.assert_not_called()
+            by_label(at.multiselect,'조회할 종목 선택').set_value(['005930'])
+            by_label(at.button,'선택 종목 조회').click().run()
+            self.assertFalse(at.exception)
+            self.assertEqual([c.args[0] for c in history.call_args_list],['005930'])
+            self.assertEqual(set(at.session_state.watch_results),{'005930'})
+            by_label(at.multiselect,'조회할 종목 선택').set_value(['000660'])
+            by_label(at.button,'선택 종목 조회').click().run()
+            self.assertFalse(at.exception)
+            self.assertEqual(set(at.session_state.watch_results),{'005930','000660'})
+            by_label(at.multiselect,'조회할 종목 선택').set_value(['005930'])
+            by_label(at.button,'선택 종목 조회').click().run()
+            self.assertFalse(at.exception)
+            self.assertEqual(history.call_count,2)
+            self.assertIn('재사용 1개',at.session_state.watch_refresh_notice)
+            by_label(at.checkbox,'최신 자료 다시 조회').check()
+            by_label(at.button,'선택 종목 조회').click().run()
+            self.assertFalse(at.exception)
+            self.assertEqual(history.call_count,3)
+            self.assertEqual(history.call_args.args[0],'005930')
+            saved=json.loads(self.browser_payload)
+            self.assertNotIn('lamp',saved)
+            self.assertNotIn('dummy-price',self.browser_payload)
+        self.at=at
+        by_label(at.radio,'메뉴').set_value('연결 설정').run()
+        self.connect('demo')
+        self.assertNotIn('watch_query_cache',at.session_state)
+        self.assertEqual(at.session_state.watch_codes,['005930','000660','035420'])
 
 
 if __name__ == '__main__':unittest.main()

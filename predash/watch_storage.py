@@ -6,7 +6,10 @@ from uuid import uuid4
 import streamlit as st
 from streamlit.components.v2 import component
 
-from predash.watchlist import clean_codes, clean_names, export_backup, restore_backup, backup_names
+from predash.watchlist import (clean_codes, clean_names, clean_groups, clean_sectors,
+                              export_backup, restore_backup, backup_names, backup_groups, backup_sectors)
+
+STORAGE_SCHEMA=2
 
 browser_store = component(
     'predash_watch_storage',
@@ -22,7 +25,8 @@ def sync_watchlist():
     if 'watch_storage_nonce' not in state:
         state.watch_storage_nonce = uuid4().hex
     ready = state.get('watch_storage_ready', False)
-    payload = export_backup(state.get('watch_codes', []), state.get('watch_names', {})) if ready else None
+    payload = export_backup(state.get('watch_codes', []), state.get('watch_names', {}),
+                            state.get('watch_groups', {}), state.get('watch_sectors', {})) if ready else None
     operation = 'save' if ready else 'load'
     request_id = state.watch_storage_nonce + ':' + (sha256(payload.encode()).hexdigest() if ready else 'load')
     response = browser_store(
@@ -34,13 +38,14 @@ def sync_watchlist():
         return ready
     status = response.get('status')
     if not ready and status in ('loaded', 'error'):
-        saved_codes, saved_names = [], {}
+        saved_codes, saved_names, saved_groups, saved_sectors = [], {}, {}, {}
         stored = response.get('payload')
         if stored is not None:
             try:
                 if not isinstance(stored, str) or len(stored) > 20000:
                     raise ValueError
                 saved_codes, saved_names = restore_backup(stored), backup_names(stored)
+                saved_groups, saved_sectors = backup_groups(stored), backup_sectors(stored)
             except ValueError:
                 # Leave corrupted data untouched until the user chooses recovery.
                 state.watch_storage_status = 'invalid'
@@ -49,6 +54,8 @@ def sync_watchlist():
             state.watch_codes = (clean_codes(st.query_params.get('watch', '').split(','))
                                  if 'watch' in st.query_params else saved_codes)
         state.watch_names = clean_names({**saved_names, **state.get('watch_names', {})}, state.watch_codes)
+        state.watch_groups = clean_groups({**saved_groups, **state.get('watch_groups', {})}, state.watch_codes)
+        state.watch_sectors = clean_sectors({**saved_sectors, **state.get('watch_sectors', {})}, state.watch_codes)
         state.watch_storage_ready = True
         state.watch_storage_status = 'error' if status == 'error' else 'saving'
         st.rerun()
@@ -68,6 +75,8 @@ def watch_storage_notice():
         if st.button('저장 목록 대신 새 목록으로 시작'):
             st.session_state.watch_codes = clean_codes(st.query_params.get('watch', '').split(','))
             st.session_state.watch_names = {}
+            st.session_state.watch_groups = {}
+            st.session_state.watch_sectors = {}
             st.session_state.watch_storage_ready = True
             st.rerun()
         return False
@@ -76,5 +85,5 @@ def watch_storage_notice():
     elif status == 'saving':
         st.caption('브라우저에 목록을 저장하는 중입니다. 저장 완료 표시 후 화면을 닫으세요.')
     else:
-        st.caption('관심종목 코드·이름은 이 브라우저에 자동 저장됩니다. 다른 기기는 백업·복원으로 옮기세요.')
+        st.caption('관심종목 코드·이름·직접 지정한 분류·섹터는 이 브라우저에 자동 저장됩니다. 다른 기기는 백업·복원으로 옮기세요.')
     return True

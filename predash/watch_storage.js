@@ -1,4 +1,4 @@
-// Only bounded public ticker codes/names cross this bridge. Never API keys.
+// Only bounded ticker codes/names and manually assigned groups/sectors cross this bridge. Never API keys.
 export default function ({ data, setStateValue, parentElement }) {
     const status = parentElement.querySelector('[role="status"]');
     if (parentElement.__request === data.request_id) return;

@@ -6,6 +6,8 @@ import streamlit as st
 
 from predash.kiwoom import Kiwoom, BrokerError
 
+CLASSROOM_SCHEMA=2
+
 
 def initialize_saved_connections():
     """Load complete saved profiles once, only after password authentication."""
@@ -49,7 +51,7 @@ def broker_client(mode=None):
 
 def clear_account_views():
     """Never show cached results from another broker, key or investment mode."""
-    keep = {'authorized', 'navigation', 'watch_codes', 'watch_names', '_broker_schema',
+    keep = {'authorized', 'navigation', 'watch_codes', 'watch_names', 'watch_groups', 'watch_sectors', '_broker_schema',
             'classroom_api_keys', 'kiwoom_saved_loaded',
             'kiwoom_credentials', 'kiwoom_active_mode', '_kiwoom_client_real', '_kiwoom_client_demo'}
     for key in list(st.session_state):

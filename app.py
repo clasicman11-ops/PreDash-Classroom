@@ -13,7 +13,7 @@ if getattr(kiwoom_module, 'CLIENT_SCHEMA', 0) < 2:
     kiwoom_module = importlib.reload(kiwoom_module)
 BrokerError = kiwoom_module.BrokerError
 import predash.classroom as classroom_module
-if not hasattr(classroom_module, 'initialize_saved_connections') or classroom_module.Kiwoom is not kiwoom_module.Kiwoom:
+if getattr(classroom_module, 'CLASSROOM_SCHEMA', 0) < 2 or classroom_module.Kiwoom is not kiwoom_module.Kiwoom:
     classroom_module=importlib.reload(classroom_module)
 account_settings = classroom_module.account_settings
 connection_form = classroom_module.connection_form
@@ -49,10 +49,15 @@ from predash.decision import comparison, brief, export_review, EvidenceError
 from predash.customs import exports, CustomsError
 from predash.krx import daily_activity, KRXError
 import predash.watchlist as watch_module
-if not hasattr(watch_module,'backup_names'):
+if getattr(watch_module,'WATCHLIST_SCHEMA',0)<2:
     watch_module=importlib.reload(watch_module)
 clean_codes,export_backup,restore_backup,MAX_WATCH,clean_names,backup_names = (getattr(watch_module,k) for k in ('clean_codes','export_backup','restore_backup','MAX_WATCH','clean_names','backup_names'))
-from predash.watch_storage import sync_watchlist, watch_storage_notice
+clean_groups,clean_sectors,backup_groups,backup_sectors,filter_codes,WATCH_GROUPS,DEFAULT_GROUP = (getattr(watch_module,k) for k in ('clean_groups','clean_sectors','backup_groups','backup_sectors','filter_codes','WATCH_GROUPS','DEFAULT_GROUP'))
+import predash.watch_storage as watch_storage_module
+if getattr(watch_storage_module,'STORAGE_SCHEMA',0)<2:
+    watch_storage_module=importlib.reload(watch_storage_module)
+sync_watchlist,watch_storage_notice=watch_storage_module.sync_watchlist,watch_storage_module.watch_storage_notice
+from predash.watch_cache import refresh_selected, query_context, WATCH_TTL_SECONDS
 from predash.paper import new_account, replay, execute, export_account, restore_account, PaperError
 
 st.set_page_config(page_title='PreDash · 내 계좌 점검실', page_icon='◈', layout='wide')
@@ -84,7 +89,7 @@ button{min-height:48px!important;border-radius:5px!important}button p{font-size:
 @media(max-width:1100px){.pd-watch-top{grid-template-columns:1fr 1fr}.pd-watch-bottom{grid-template-columns:1fr 1fr}}
 @media(max-width:700px){.block-container{padding:1.2rem 1rem 2rem}h1{font-size:1.8rem!important}.pd-market,.pd-summary{grid-template-columns:1fr}.pd-market>div:first-child{border-right:0;border-bottom:1px solid var(--pd-line)}.pd-summary>div{padding:14px 20px;border-right:0;border-bottom:1px solid #577768}.pd-summary>div:last-child{border-bottom:0}.pd-card-body,.pd-watch-top,.pd-watch-bottom,.pd-holding-head{grid-template-columns:1fr}.pd-card,.pd-evidence,.pd-watch,.pd-holding{padding:18px}.pd-toolbar{margin-bottom:18px}.pd-market>div{padding:18px}.pd-holding-head{gap:12px}}
 
-/* Compact dashboard / UI 2.10 · Kiwoom */
+/* Compact dashboard / UI 2.11 · Kiwoom */
 .block-container{padding-top:1.2rem;padding-bottom:1.5rem}
 h1{font-size:1.8rem!important}h2,h3{font-size:1.2rem!important}
 p,li{font-size:16px;line-height:1.5}button p{font-size:16px!important}
@@ -235,7 +240,7 @@ if password and not st.session_state.get('authorized'):
     st.html('<div class="pd-intro">내일의 투자, 오늘 더 명확하게</div>')
     st.subheader('내 계좌를 읽는 개인 분석 공간')
     st.write('계좌·지수·기업 자료를 연결해 오늘 확인할 순서를 정리합니다.')
-    st.caption('UI 2.10 · Kiwoom · 키움 REST API 실전·모의 조회')
+    st.caption('UI 2.11 · Kiwoom · 키움 REST API 실전·모의 조회')
     with st.form('login'):
         entered=st.text_input('대시보드 비밀번호',type='password')
         if st.form_submit_button('내 대시보드 열기',type='primary'):
@@ -267,7 +272,7 @@ with st.sidebar:
     large_text=st.toggle('글자 크게 보기',value=st.query_params.get('text','')=='large')
     if large_text:st.query_params['text']='large'
     elif 'text' in st.query_params:del st.query_params['text']
-    st.caption('UI 2.10 · Kiwoom · 본인 계정 · 조회 전용')
+    st.caption('UI 2.11 · Kiwoom · 본인 계정 · 조회 전용')
     if password and st.button('로그아웃'):
         st.session_state.clear();st.rerun()
 
@@ -275,7 +280,7 @@ with st.sidebar:
 if large_text:
     st.html('<style>.stApp p,.stApp li{font-size:20px}.pd-watch small,.pd-card-sub,.pd-card-note,.pd-card-body small,.pd-holding-head small{font-size:18px}.pd-v-table,.pd-v-empty,.pd-v-notice,.pd-v-company{font-size:18px}.pd-v-note,.pd-v-legend,.pd-v-table small,.pd-v-notice small,.pd-v-company small{font-size:16px}</style>')
 mode_label='모의투자' if page=='모의투자' else ('매매 연습' if page=='매매 연습' else '실전 조회' if account_settings()['mode']=='real' else '개인 분석')
-st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.10 · Kiwoom</span></div></div>")
+st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.11 · Kiwoom</span></div></div>")
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def cached_vix(day):return fetch_vix(day)
@@ -525,6 +530,8 @@ elif page=='관심종목':
     if 'watch_codes' not in st.session_state:st.session_state.watch_codes=codes
     codes=st.session_state.watch_codes
     if 'watch_names' not in st.session_state:st.session_state.watch_names={}
+    if 'watch_groups' not in st.session_state:st.session_state.watch_groups={}
+    if 'watch_sectors' not in st.session_state:st.session_state.watch_sectors={}
     previous_watch_names=dict(st.session_state.watch_names)
     for c,item in st.session_state.get('watch_results',{}).items():
         if item.get('name') and item['name']!=c:st.session_state.watch_names[c]=item['name']
@@ -533,6 +540,12 @@ elif page=='관심종목':
         st.query_params['watch']=','.join(st.session_state.watch_codes)
         st.session_state.watch_results={c:v for c,v in st.session_state.get('watch_results',{}).items() if c in st.session_state.watch_codes}
         st.session_state.watch_names=clean_names(st.session_state.get('watch_names',{}),st.session_state.watch_codes)
+        st.session_state.watch_groups=clean_groups(st.session_state.watch_groups,st.session_state.watch_codes)
+        st.session_state.watch_sectors=clean_sectors(st.session_state.watch_sectors,st.session_state.watch_codes)
+        cache=st.session_state.get('watch_query_cache',{})
+        if cache:
+            cache['entries']={c:v for c,v in cache.get('entries',{}).items() if c in st.session_state.watch_codes}
+            st.session_state.watch_query_cache=cache
     with st.expander('종목 추가 · 백업 / 복원',expanded=not codes):
         with st.form('watch_code_add'):
             direct_code=st.text_input('종목코드로 바로 추가',placeholder='예: 005930',max_chars=6)
@@ -566,58 +579,86 @@ elif page=='관심종목':
                     st.session_state.watch_names[chosen]=next(p['name'] for p in candidates if p['code']==chosen)
                     save_watch(codes+[chosen])
                     st.rerun()
-        st.download_button('종목 목록 백업',data=export_backup(codes,st.session_state.get('watch_names',{})),file_name='predash-watchlist.json',
+        st.download_button('종목 목록 백업',data=export_backup(codes,st.session_state.watch_names,st.session_state.watch_groups,st.session_state.watch_sectors),file_name='predash-watchlist.json',
                            mime='application/json',disabled=not codes)
         uploaded=st.file_uploader('종목 목록 복원 (JSON)',type=['json'],key='watch_restore')
         if uploaded and st.button('백업 목록 복원'):
             try:
                 restored=uploaded.getvalue().decode('utf-8')
                 st.session_state.watch_names.update(backup_names(restored))
+                st.session_state.watch_groups=backup_groups(restored)
+                st.session_state.watch_sectors=backup_sectors(restored)
                 save_watch(restore_backup(restored))
                 st.session_state.pop('watch_name_attempts',None)
                 st.rerun()
             except (ValueError,UnicodeDecodeError) as exc:st.error(str(exc))
-        st.caption('코드·이름은 같은 브라우저에 자동 저장됩니다. 시크릿 모드·브라우저 데이터 삭제 시 목록이 사라질 수 있습니다. 백업 파일로 다른 기기에 옮길 수 있으며, 조회된 시세·실적은 재접속 후 다시 불러옵니다.')
+        st.caption('코드·이름·분류·섹터는 같은 브라우저에 자동 저장됩니다. 시크릿 모드·브라우저 데이터 삭제 시 목록이 사라질 수 있습니다. 백업 파일로 다른 기기에 옮길 수 있으며, 조회된 시세·실적은 재접속 후 다시 불러옵니다.')
         if codes and st.button('관심종목 목록 비우기'):
             save_watch([]);st.rerun()
-    head,action=st.columns([4,1],vertical_alignment='center')
-    head.subheader(f'저장한 관심종목 {len(codes)}개')
-    refresh=action.button('목록 전체 새로고침',type='primary',disabled=not codes or not api_key('DATA_GO_KR_SERVICE_KEY'),use_container_width=True)
+    watch_labels={code:f"{st.session_state.watch_names.get(code,code)} · {code}" for code in codes}
+    def watch_label(code):
+        return watch_labels[code]
+    with st.expander('분류 · 섹터 관리'):
+        if codes:
+            edit_code=st.selectbox('분류할 종목',codes,format_func=watch_label,key='watch_classify_code')
+            current_group=st.session_state.watch_groups.get(edit_code,DEFAULT_GROUP)
+            with st.form('watch_classify'):
+                edit_group=st.selectbox('관심종목 분류',WATCH_GROUPS,index=WATCH_GROUPS.index(current_group),key='watch_group_edit_'+edit_code)
+                edit_sector=st.text_input('섹터 이름',value=st.session_state.watch_sectors.get(edit_code,''),placeholder='예: 반도체, 전력 인프라',max_chars=40,key='watch_sector_edit_'+edit_code)
+                save_classification=st.form_submit_button('분류 저장')
+            if save_classification:
+                st.session_state.watch_groups=clean_groups({**st.session_state.watch_groups,edit_code:edit_group},codes)
+                st.session_state.watch_sectors=clean_sectors({**st.session_state.watch_sectors,edit_code:edit_sector},codes)
+                st.rerun()
+            st.caption('보유종목·매수 관찰·섹터 관심은 직접 지정한 분류입니다. 분류와 섹터명은 목록 백업에도 포함됩니다.')
+        else:st.info('먼저 관심종목을 추가하세요.')
+    st.subheader(f'저장한 관심종목 {len(codes)}/{MAX_WATCH}개')
+    group_col,sector_col=st.columns(2)
+    group_options=[None,*WATCH_GROUPS]
+    if st.session_state.get('watch_group_filter') not in group_options:st.session_state.pop('watch_group_filter',None)
+    group=group_col.selectbox('표시할 분류',group_options,format_func=lambda value:value or '전체',key='watch_group_filter')
+    sector_options=[None,'',*sorted(set(st.session_state.watch_sectors.values()))]
+    if st.session_state.get('watch_sector_filter') not in sector_options:st.session_state.pop('watch_sector_filter',None)
+    sector=sector_col.selectbox('표시할 섹터',sector_options,format_func=lambda value:'전체' if value is None else value or '미지정',key='watch_sector_filter')
+    visible_codes=filter_codes(codes,st.session_state.watch_groups,st.session_state.watch_sectors,group,sector)
+    selection_view=(group,sector,tuple(visible_codes))
+    if st.session_state.get('watch_selection_view')!=selection_view:
+        st.session_state.watch_refresh_selection=visible_codes[:5]
+        st.session_state.watch_selection_view=selection_view
+    if st.button('현재 분류 모두 선택',disabled=not visible_codes):
+        st.session_state.watch_refresh_selection=list(visible_codes)
+    selected=st.multiselect('조회할 종목 선택',visible_codes,format_func=watch_label,key='watch_refresh_selection')
+    force=st.checkbox('최신 자료 다시 조회',key='watch_force_refresh',help='최근 조회 자료를 재사용하지 않고 선택 종목을 다시 조회합니다.')
+    refresh=st.button('선택 종목 조회',type='primary',disabled=not selected or not api_key('DATA_GO_KR_SERVICE_KEY'),use_container_width=True)
+    st.caption(f'현재 분류 {len(visible_codes)}개 · 선택 {len(selected)}개 · 처음에는 최대 5개 선택. 최근 {WATCH_TTL_SECONDS//60}분 동안 오류 없이 조회한 자료를 재사용합니다. 조회 시각과 자료 기준일을 확인하세요.')
     if refresh:
         provider=official_client()
-        today=datetime.now(ZoneInfo('Asia/Seoul')).date()
-        results={}
-        progress=st.progress(0,text='공식 자료를 조회합니다.')
-        for index,code in enumerate(codes):
-            results[code]=watch_fetch(code,provider,today)
-            progress.progress((index+1)/len(codes),text=f'조회 {index+1}/{len(codes)}')
+        now=datetime.now(ZoneInfo('Asia/Seoul'))
+        context=query_context({'price':api_key('DATA_GO_KR_SERVICE_KEY'),'dart':api_key('DART_CRTFC_KEY'),'krx':api_key('KRX_AUTH_KEY'),'broker':account_settings()})
+        date_key=now.date().isoformat()+(' / 18시 이후' if now.hour>=18 else ' / 18시 이전')
+        progress=st.progress(0,text='선택한 종목을 조회합니다.')
+        results,cache,stats=refresh_selected(selected,st.session_state.get('watch_results',{}),st.session_state.get('watch_query_cache',{}),
+            lambda code:watch_fetch(code,provider,now.date()),context,date_key,force=force,
+            on_progress=lambda index,total,code,reused:progress.progress(index/total,text=f"{index}/{total} · {code} · {'최근 자료 재사용' if reused else '새 조회'}"))
         progress.empty()
         st.session_state.watch_results=results
+        st.session_state.watch_query_cache=cache
+        st.session_state.watch_refresh_notice=f"선택 {len(selected)}개 처리 · 새 조회 {stats['fetched']}개 · 최근 자료 재사용 {stats['reused']}개"
+    if st.session_state.get('watch_refresh_notice'):st.caption(st.session_state.watch_refresh_notice)
     results=st.session_state.get('watch_results',{})
     for c,result in results.items():
         if result.get('name') and result['name']!=c:st.session_state.watch_names[c]=result['name']
-    attempted=set(st.session_state.get('watch_name_attempts',[]))
-    missing=[c for c in codes if c not in st.session_state.watch_names and (refresh or c not in attempted)]
-    if missing and api_key('DATA_GO_KR_SERVICE_KEY'):
-        resolver=official_client()
-        with st.spinner('저장한 종목의 공식 종목명을 확인합니다…'):
-            for c in missing:
-                attempted.add(c)
-                try:
-                    exact=next((p for p in resolver.search(c) if p['code']==c),None)
-                    if exact:st.session_state.watch_names[c]=exact['name']
-                except DataError:pass
-        st.session_state.watch_name_attempts=list(attempted)
     if previous_watch_names!=st.session_state.watch_names:st.rerun()
-    if not codes:st.info('종목을 추가하면 목록에 남습니다. 저장 후 목록 전체 새로고침을 눌러 자료를 확인하세요.')
-    elif not results:st.info('저장된 종목을 확인했습니다. 목록 전체 새로고침을 누르면 최신 공식 자료를 가져옵니다.')
-    for code in codes:
+    if not codes:st.info('종목을 추가하면 목록에 남습니다. 조회할 종목을 선택해 자료를 확인하세요.')
+    elif not visible_codes:st.info('현재 분류·섹터에 해당하는 종목이 없습니다.')
+    elif not results:st.info('저장된 종목을 확인했습니다. 선택 종목 조회를 누르면 공식 자료를 가져옵니다.')
+    for code in visible_codes:
         item=results.get(code)
         display_name=st.session_state.watch_names.get(code,code)
         if item and item.get('name')!=code:display_name=item['name']
         elif item:item['name']=display_name
         if not item:
-            st.html(f"<div class='pd-watch'><span class='pd-watch-name'>{html.escape(str(display_name))}</span><small>{code} · 조회 전 · 목록 전체 새로고침을 눌러주세요.</small></div>")
+            st.html(f"<div class='pd-watch'><span class='pd-watch-name'>{html.escape(str(display_name))}</span><small>{code} · 조회 전 · 종목을 선택하고 조회를 눌러주세요.</small></div>")
         else:
             lamp=item['lamp'];metrics=item['metrics'];flow=item['flow']
             state=lamp['state'] if lamp else '판정 보류'
@@ -647,6 +688,9 @@ elif page=='관심종목':
                 if item['report'] and item['report'].get('disclosures'):
                     d=item['report']['disclosures'][0];st.link_button(f"{d['date']} · {d['title']}",d['url'])
                 for source,reason in item['errors'].items():st.caption(f"{source} 보류 · {reason}")
+        assigned_group=st.session_state.watch_groups.get(code,DEFAULT_GROUP)
+        assigned_sector=st.session_state.watch_sectors.get(code,'미지정')
+        st.text(f'분류 · {assigned_group} / 섹터 · {assigned_sector}')
         sector=st.session_state.get('industry_note_'+code,{})
         if sector.get('sector'):
             st.caption('섹터 조사 기록 · '+str(sector['sector'])+' · 사용자 기록, 자동 분류 아님')

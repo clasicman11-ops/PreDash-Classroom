@@ -2,7 +2,10 @@
 import json
 import re
 
-MAX_WATCH=8
+WATCHLIST_SCHEMA=2
+MAX_WATCH=20
+WATCH_GROUPS=('보유종목','매수 관찰','섹터 관심')
+DEFAULT_GROUP='매수 관찰'
 
 def clean_codes(values):
     result=[]
@@ -32,9 +35,37 @@ def backup_names(payload):
     decoded=json.loads(payload)
     return clean_names(decoded.get('names',{}),codes)
 
-def export_backup(codes,names=None):
+def clean_groups(groups,codes):
+    if not isinstance(groups,dict):return {}
+    return {code:groups[code] for code in clean_codes(codes)
+            if code in groups and isinstance(groups[code],str) and groups[code] in WATCH_GROUPS}
+
+def clean_sectors(sectors,codes):
+    if not isinstance(sectors,dict):return {}
+    return {code:sectors[code].strip()[:40] for code in clean_codes(codes)
+            if code in sectors and isinstance(sectors[code],str) and sectors[code].strip()}
+
+def backup_groups(payload):
+    codes=restore_backup(payload)
+    return clean_groups(json.loads(payload).get('groups',{}),codes)
+
+def backup_sectors(payload):
+    codes=restore_backup(payload)
+    return clean_sectors(json.loads(payload).get('sectors',{}),codes)
+
+def filter_codes(codes,groups=None,sectors=None,group=None,sector=None):
+    codes=clean_codes(codes)
+    groups=clean_groups(groups,codes)
+    sectors=clean_sectors(sectors,codes)
+    return [code for code in codes
+            if (group is None or groups.get(code,DEFAULT_GROUP)==group)
+            and (sector is None or sectors.get(code,'')==sector)]
+
+def export_backup(codes,names=None,groups=None,sectors=None):
     codes=clean_codes(codes)
     payload={'version':1,'codes':codes}
     if names:payload['names']=clean_names(names,codes)
+    if groups:payload['groups']=clean_groups(groups,codes)
+    if sectors:payload['sectors']=clean_sectors(sectors,codes)
     return json.dumps(payload,ensure_ascii=False,indent=2)
 
