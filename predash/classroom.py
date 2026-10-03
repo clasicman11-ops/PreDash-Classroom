@@ -1,10 +1,32 @@
-"""Kiwoom credentials and account results stay in the current user session."""
+"""Session-isolated broker clients with optional owner-managed Secrets."""
 from ipaddress import IPv4Address
 
 import requests
 import streamlit as st
 
 from predash.kiwoom import Kiwoom, BrokerError
+
+
+def initialize_saved_connections():
+    """Load complete saved profiles once, only after password authentication."""
+    if not st.session_state.get('authorized') or st.session_state.get('kiwoom_saved_loaded'):
+        return
+    credentials = dict(st.session_state.get('kiwoom_credentials', {}))
+    default = 'demo'
+    try:
+        for mode in ('real', 'demo'):
+            prefix = 'KIWOOM_' + mode.upper()
+            key = str(st.secrets.get(prefix + '_APP_KEY', '')).strip()
+            secret = str(st.secrets.get(prefix + '_APP_SECRET', '')).strip()
+            if key and secret and mode not in credentials:
+                credentials[mode] = dict(mode=mode, key=key, secret=secret, source='secrets')
+        default = str(st.secrets.get('KIWOOM_DEFAULT_MODE', 'demo')).strip()
+    except FileNotFoundError:
+        pass
+    st.session_state.kiwoom_credentials = credentials
+    if credentials and st.session_state.get('kiwoom_active_mode') not in credentials:
+        st.session_state.kiwoom_active_mode = default if default in credentials else next(iter(credentials))
+    st.session_state.kiwoom_saved_loaded = True
 
 
 def account_settings(mode=None):
@@ -28,10 +50,10 @@ def broker_client(mode=None):
 def clear_account_views():
     """Never show cached results from another broker, key or investment mode."""
     keep = {'authorized', 'navigation', 'watch_codes', 'watch_names', '_broker_schema',
-            'classroom_api_keys',
+            'classroom_api_keys', 'kiwoom_saved_loaded',
             'kiwoom_credentials', 'kiwoom_active_mode', '_kiwoom_client_real', '_kiwoom_client_demo'}
     for key in list(st.session_state):
-        if key not in keep:
+        if key not in keep and not key.startswith('watch_storage_'):
             del st.session_state[key]
 
 
@@ -64,7 +86,10 @@ def connection_form():
     modes = [m for m in ('real', 'demo') if credentials.get(m)]
     labels = {'real': '실전 조회', 'demo': '모의투자 조회'}
     for mode in modes:
-        st.success('키움 ' + labels[mode] + ' 연결됨')
+        if credentials[mode].get('source') == 'secrets':
+            st.info('키움 ' + labels[mode] + ' · Secrets 설정 불러옴 · 조회 시 인증')
+        else:
+            st.success('키움 ' + labels[mode] + ' 연결됨')
         if st.button(labels[mode] + ' 연결 해제', key='disconnect_' + mode):
             remaining = {m: s for m, s in credentials.items() if m != mode}
             st.session_state.kiwoom_credentials = remaining
@@ -107,4 +132,4 @@ def connection_form():
     if st.session_state.get('kiwoom_cash_notice'):
         st.warning('잔고 연결은 성공했지만 예수금은 조회 보류입니다. ' + st.session_state.kiwoom_cash_notice)
     st.link_button('키움 REST API · 키 및 허용 IP 관리', 'https://openapi.kiwoom.com/intro/serviceInfo')
-    st.caption('실전과 모의는 각 환경에서 발급한 키로 따로 연결합니다. 키는 현재 세션에서만 사용합니다. 연결 변경·해제 시 조회 결과와 실습 기록이 지워지므로 필요한 기록을 먼저 백업하세요.')
+    st.caption('직접 입력한 키는 현재 접속에서만 사용합니다. Secrets에 저장한 키는 다음 로그인에서 다시 불러옵니다. 연결 해제는 현재 접속에만 적용되며, 영구 삭제는 Streamlit Settings → Secrets에서 합니다. 연결 변경·해제 시 조회 결과와 실습 기록이 지워지므로 먼저 백업하세요.')

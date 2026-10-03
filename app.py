@@ -13,7 +13,7 @@ if getattr(kiwoom_module, 'CLIENT_SCHEMA', 0) < 2:
     kiwoom_module = importlib.reload(kiwoom_module)
 BrokerError = kiwoom_module.BrokerError
 import predash.classroom as classroom_module
-if not hasattr(classroom_module, 'broker_client') or classroom_module.Kiwoom is not kiwoom_module.Kiwoom:
+if not hasattr(classroom_module, 'initialize_saved_connections') or classroom_module.Kiwoom is not kiwoom_module.Kiwoom:
     classroom_module=importlib.reload(classroom_module)
 account_settings = classroom_module.account_settings
 connection_form = classroom_module.connection_form
@@ -52,6 +52,7 @@ import predash.watchlist as watch_module
 if not hasattr(watch_module,'backup_names'):
     watch_module=importlib.reload(watch_module)
 clean_codes,export_backup,restore_backup,MAX_WATCH,clean_names,backup_names = (getattr(watch_module,k) for k in ('clean_codes','export_backup','restore_backup','MAX_WATCH','clean_names','backup_names'))
+from predash.watch_storage import sync_watchlist, watch_storage_notice
 from predash.paper import new_account, replay, execute, export_account, restore_account, PaperError
 
 st.set_page_config(page_title='PreDash · 내 계좌 점검실', page_icon='◈', layout='wide')
@@ -83,7 +84,7 @@ button{min-height:48px!important;border-radius:5px!important}button p{font-size:
 @media(max-width:1100px){.pd-watch-top{grid-template-columns:1fr 1fr}.pd-watch-bottom{grid-template-columns:1fr 1fr}}
 @media(max-width:700px){.block-container{padding:1.2rem 1rem 2rem}h1{font-size:1.8rem!important}.pd-market,.pd-summary{grid-template-columns:1fr}.pd-market>div:first-child{border-right:0;border-bottom:1px solid var(--pd-line)}.pd-summary>div{padding:14px 20px;border-right:0;border-bottom:1px solid #577768}.pd-summary>div:last-child{border-bottom:0}.pd-card-body,.pd-watch-top,.pd-watch-bottom,.pd-holding-head{grid-template-columns:1fr}.pd-card,.pd-evidence,.pd-watch,.pd-holding{padding:18px}.pd-toolbar{margin-bottom:18px}.pd-market>div{padding:18px}.pd-holding-head{gap:12px}}
 
-/* Compact dashboard / UI 2.9.1 · Kiwoom */
+/* Compact dashboard / UI 2.10 · Kiwoom */
 .block-container{padding-top:1.2rem;padding-bottom:1.5rem}
 h1{font-size:1.8rem!important}h2,h3{font-size:1.2rem!important}
 p,li{font-size:16px;line-height:1.5}button p{font-size:16px!important}
@@ -234,7 +235,7 @@ if password and not st.session_state.get('authorized'):
     st.html('<div class="pd-intro">내일의 투자, 오늘 더 명확하게</div>')
     st.subheader('내 계좌를 읽는 개인 분석 공간')
     st.write('계좌·지수·기업 자료를 연결해 오늘 확인할 순서를 정리합니다.')
-    st.caption('UI 2.9.1 · Kiwoom · 키움 REST API 실전·모의 조회')
+    st.caption('UI 2.10 · Kiwoom · 키움 REST API 실전·모의 조회')
     with st.form('login'):
         entered=st.text_input('대시보드 비밀번호',type='password')
         if st.form_submit_button('내 대시보드 열기',type='primary'):
@@ -242,6 +243,10 @@ if password and not st.session_state.get('authorized'):
                 st.session_state.authorized=True; st.rerun()
             st.error('비밀번호를 확인하세요.')
     st.stop()
+
+classroom_module.initialize_saved_connections()
+if st.session_state.get('authorized'):
+    sync_watchlist()
 
 def open_research(code):
     st.session_state.navigation='투자 근거'
@@ -262,7 +267,7 @@ with st.sidebar:
     large_text=st.toggle('글자 크게 보기',value=st.query_params.get('text','')=='large')
     if large_text:st.query_params['text']='large'
     elif 'text' in st.query_params:del st.query_params['text']
-    st.caption('UI 2.9.1 · Kiwoom · 본인 계정 · 조회 전용')
+    st.caption('UI 2.10 · Kiwoom · 본인 계정 · 조회 전용')
     if password and st.button('로그아웃'):
         st.session_state.clear();st.rerun()
 
@@ -270,7 +275,7 @@ with st.sidebar:
 if large_text:
     st.html('<style>.stApp p,.stApp li{font-size:20px}.pd-watch small,.pd-card-sub,.pd-card-note,.pd-card-body small,.pd-holding-head small{font-size:18px}.pd-v-table,.pd-v-empty,.pd-v-notice,.pd-v-company{font-size:18px}.pd-v-note,.pd-v-legend,.pd-v-table small,.pd-v-notice small,.pd-v-company small{font-size:16px}</style>')
 mode_label='모의투자' if page=='모의투자' else ('매매 연습' if page=='매매 연습' else '실전 조회' if account_settings()['mode']=='real' else '개인 분석')
-st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.9.1 · Kiwoom</span></div></div>")
+st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.10 · Kiwoom</span></div></div>")
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def cached_vix(day):return fetch_vix(day)
@@ -310,7 +315,7 @@ if page=='모의투자':
     configured=all(settings[k] for k in ('key','secret'))
     with st.expander('모의계좌 연결 방법',expanded=not configured):
         st.write('08 데이터 연결에서 모의투자 조회를 선택하고 키움 모의용 App Key·App Secret을 입력하세요.')
-        st.write('실전용과 모의용 키는 별도로 연결합니다. 증권사 키는 Secrets나 GitHub에 저장하지 않습니다.')
+        st.write('실전용과 모의용 키는 별도로 연결합니다. 개인용 앱에서는 Streamlit Secrets에 저장해 다음 로그인에서 불러올 수 있습니다.')
         st.caption('키움 REST API에 앱 서버의 IP를 등록해야 합니다. 데이터 연결에서 서버 IP를 확인할 수 있습니다.')
         st.link_button('키움 REST API · 모의계좌 및 키 관리','https://openapi.kiwoom.com/intro/serviceInfo')
     if not password:
@@ -511,16 +516,16 @@ elif page=='관심종목':
     st.title('관심종목 점검')
     st.html('<div class="pd-intro">저장한 종목의 추세·실적·수급을 한 화면에서 점검하세요.</div>')
     st.caption('일별 종가: 공공데이터포털 · 동기 실적: OpenDART · 수급: 키움 연결 시 · 주문 기능 없음')
+    if not watch_storage_notice():st.stop()
     if not api_key('DATA_GO_KR_SERVICE_KEY'):
-        st.info('연결 설정에서 공공데이터 API 키를 입력하면 관심종목 조회가 열립니다.')
-        st.stop()
+        st.info('목록은 저장할 수 있습니다. 종목 검색·시세 조회에는 연결 설정의 공공데이터 API 키가 필요합니다.')
     # Only public ticker codes are put in the bookmark URL; no account or financial payload.
     raw=st.query_params.get('watch','')
     codes=clean_codes(raw.split(',') if isinstance(raw,str) else [])
     if 'watch_codes' not in st.session_state:st.session_state.watch_codes=codes
-    elif codes and codes!=st.session_state.watch_codes:st.session_state.watch_codes=codes
     codes=st.session_state.watch_codes
     if 'watch_names' not in st.session_state:st.session_state.watch_names={}
+    previous_watch_names=dict(st.session_state.watch_names)
     for c,item in st.session_state.get('watch_results',{}).items():
         if item.get('name') and item['name']!=c:st.session_state.watch_names[c]=item['name']
     def save_watch(updated):
@@ -529,6 +534,15 @@ elif page=='관심종목':
         st.session_state.watch_results={c:v for c,v in st.session_state.get('watch_results',{}).items() if c in st.session_state.watch_codes}
         st.session_state.watch_names=clean_names(st.session_state.get('watch_names',{}),st.session_state.watch_codes)
     with st.expander('종목 추가 · 백업 / 복원',expanded=not codes):
+        with st.form('watch_code_add'):
+            direct_code=st.text_input('종목코드로 바로 추가',placeholder='예: 005930',max_chars=6)
+            direct_add=st.form_submit_button('종목코드 저장')
+        if direct_add:
+            selected_codes=clean_codes([direct_code])
+            if not selected_codes:st.warning('숫자 6자리 종목코드를 입력하세요.')
+            elif selected_codes[0] in codes:st.info('이미 저장된 종목입니다.')
+            elif len(codes)>=MAX_WATCH:st.warning(f'관심종목은 최대 {MAX_WATCH}개입니다.')
+            else:save_watch(codes+selected_codes);st.rerun()
         with st.form('watch_lookup'):
             query=st.text_input('종목명 또는 종목코드',placeholder='예: 삼성전자 또는 005930',max_chars=40)
             submitted=st.form_submit_button('종목 찾기')
@@ -563,10 +577,12 @@ elif page=='관심종목':
                 st.session_state.pop('watch_name_attempts',None)
                 st.rerun()
             except (ValueError,UnicodeDecodeError) as exc:st.error(str(exc))
-        st.caption('주소에는 종목코드만 저장되며, 종목명은 공식 조회로 복원됩니다. 백업 파일에는 코드와 종목명을 함께 보관합니다. 서버 세션이 끝나면 조회된 수치는 다시 불러와야 합니다.')
+        st.caption('코드·이름은 같은 브라우저에 자동 저장됩니다. 시크릿 모드·브라우저 데이터 삭제 시 목록이 사라질 수 있습니다. 백업 파일로 다른 기기에 옮길 수 있으며, 조회된 시세·실적은 재접속 후 다시 불러옵니다.')
+        if codes and st.button('관심종목 목록 비우기'):
+            save_watch([]);st.rerun()
     head,action=st.columns([4,1],vertical_alignment='center')
     head.subheader(f'저장한 관심종목 {len(codes)}개')
-    refresh=action.button('목록 전체 새로고침',type='primary',disabled=not codes,use_container_width=True)
+    refresh=action.button('목록 전체 새로고침',type='primary',disabled=not codes or not api_key('DATA_GO_KR_SERVICE_KEY'),use_container_width=True)
     if refresh:
         provider=official_client()
         today=datetime.now(ZoneInfo('Asia/Seoul')).date()
@@ -582,7 +598,7 @@ elif page=='관심종목':
         if result.get('name') and result['name']!=c:st.session_state.watch_names[c]=result['name']
     attempted=set(st.session_state.get('watch_name_attempts',[]))
     missing=[c for c in codes if c not in st.session_state.watch_names and (refresh or c not in attempted)]
-    if missing:
+    if missing and api_key('DATA_GO_KR_SERVICE_KEY'):
         resolver=official_client()
         with st.spinner('저장한 종목의 공식 종목명을 확인합니다…'):
             for c in missing:
@@ -592,6 +608,7 @@ elif page=='관심종목':
                     if exact:st.session_state.watch_names[c]=exact['name']
                 except DataError:pass
         st.session_state.watch_name_attempts=list(attempted)
+    if previous_watch_names!=st.session_state.watch_names:st.rerun()
     if not codes:st.info('종목을 추가하면 목록에 남습니다. 저장 후 목록 전체 새로고침을 눌러 자료를 확인하세요.')
     elif not results:st.info('저장된 종목을 확인했습니다. 목록 전체 새로고침을 누르면 최신 공식 자료를 가져옵니다.')
     for code in codes:
@@ -787,7 +804,7 @@ elif page=='연결 설정':
     ]
     connected=sum(bool(api_key(key)) for _,_,key,_,_ in api_specs)
     kiwoom_connected=all(account_settings()[k] for k in ('key','secret'))
-    st.html(f"<div class='pd-summary'><div><span>공공 API</span><strong>{connected}/4</strong><small>필요한 항목만 연결</small></div><div><span>키움증권</span><strong>{'연결됨' if kiwoom_connected else '미연결'}</strong><small>현재 세션 전용</small></div><div><span>저장 방식</span><strong>세션 보호</strong><small>로그아웃 시 입력 키 삭제</small></div></div>")
+    st.html(f"<div class='pd-summary'><div><span>공공 API</span><strong>{connected}/4</strong><small>필요한 항목만 연결</small></div><div><span>키움증권</span><strong>{'설정됨' if kiwoom_connected else '미설정'}</strong><small>세션 입력 / Secrets 불러오기</small></div><div><span>저장 방식</span><strong>선택 저장</strong><small>Secrets 설정은 재접속 유지</small></div></div>")
     st.subheader('01 · 공공 데이터 API')
     st.caption('수강 중에는 아래에서 바로 입력할 수 있습니다. 장기 사용은 본인 Streamlit Secrets에 저장하면 매번 다시 입력할 필요가 없습니다.')
     current=st.session_state.get('classroom_api_keys',{}).copy()
@@ -826,11 +843,19 @@ elif page=='연결 설정':
         st.code('''DART_CRTFC_KEY = "내 DART 키"
 DATA_GO_KR_SERVICE_KEY = "내 공공데이터 키"
 KRX_AUTH_KEY = "내 KRX 키"
-CUSTOMS_API_KEY = "내 관세청 키"''',language='toml')
-        st.write('Streamlit Community Cloud → 해당 앱 → Settings → Secrets에 붙여 넣고 Save 합니다.')
+CUSTOMS_API_KEY = "내 관세청 키"
+
+# 키움 저장은 본인 전용 앱에서만 선택적으로 사용
+KIWOOM_DEFAULT_MODE = "real"
+KIWOOM_REAL_APP_KEY = "내 실전 App Key"
+KIWOOM_REAL_APP_SECRET = "내 실전 App Secret"
+KIWOOM_DEMO_APP_KEY = "내 모의 App Key"
+KIWOOM_DEMO_APP_SECRET = "내 모의 App Secret"''',language='toml')
+        st.write('share.streamlit.io → 해당 앱 옆 ⋮ → Settings → Secrets에 필요한 항목만 추가하고 Save 합니다. 기존 APP_PASSWORD는 유지하세요.')
+        st.caption('저장한 키움 키는 로그인 후 불러옵니다. 이 앱의 로그인 비밀번호를 아는 사람은 저장된 계좌를 조회할 수 있으므로 본인 전용 앱에서 사용하세요.')
     st.divider()
     st.subheader('02 · 키움증권 계좌')
-    st.caption('증권사 App Key·Secret은 현재 접속 세션에서만 사용합니다.')
+    st.caption('직접 입력은 현재 접속에만 적용됩니다. 반복 입력을 줄이려면 위 영구 설정에서 키움 Secrets를 추가하세요.')
     connection_form()
     if kiwoom_connected:
         st.caption(f"현재 키움 설정: {'실전' if account_settings()['mode']=='real' else '모의 또는 기본값 demo'} · 키 원문은 표시하지 않습니다.")
@@ -846,7 +871,7 @@ CUSTOMS_API_KEY = "내 관세청 키"''',language='toml')
                 st.caption('실전·모의 환경에 맞는 키와 앱 서버의 키움 허용 IP 등록을 확인하세요.')
     st.link_button('키움증권 API 신청','https://openapi.kiwoom.com/intro/serviceInfo',use_container_width=True)
     st.info('권장 순서 · 공공데이터 → DART → 키움 → 필요할 때 KRX·관세청. 모든 API를 한 번에 준비할 필요는 없습니다.')
-    st.caption('세션 입력 API 키와 키움 연결 정보는 로그아웃 시 함께 삭제됩니다. 장기 사용이 필요한 공공 API만 본인의 Streamlit Secrets에 저장하세요.')
+    st.caption('로그아웃하면 접속 중의 키·토큰·조회 결과를 지웁니다. Secrets에 저장한 설정과 브라우저에 저장한 관심종목 목록은 남아 다음 로그인에서 불러옵니다.')
 elif page=='매매 습관':
     st.title('매매 습관')
     mode_label=st.radio('분석할 계좌',['실전 계좌','키움 모의계좌'],horizontal=True,

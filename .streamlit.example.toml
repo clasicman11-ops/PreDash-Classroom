@@ -3,3 +3,10 @@ DART_CRTFC_KEY = ""
 DATA_GO_KR_SERVICE_KEY = ""
 KRX_AUTH_KEY = ""
 CUSTOMS_API_KEY = ""
+
+# 개인용 앱에서 선택적으로 설정합니다. 실제 키를 이 파일/GitHub에 넣지 마세요.
+# KIWOOM_DEFAULT_MODE = "real"
+# KIWOOM_REAL_APP_KEY = ""
+# KIWOOM_REAL_APP_SECRET = ""
+# KIWOOM_DEMO_APP_KEY = ""
+# KIWOOM_DEMO_APP_SECRET = ""

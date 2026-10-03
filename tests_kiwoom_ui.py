@@ -6,6 +6,7 @@ from unittest.mock import patch
 from streamlit.testing.v1 import AppTest
 from predash.kiwoom import Kiwoom
 from predash.macro import MacroError
+from predash.watchlist import export_backup
 
 APP = Path(__file__).with_name('app.py')
 
@@ -24,12 +25,28 @@ class KiwoomUITests(unittest.TestCase):
         patch('predash.macro.fetch_vix', side_effect=MacroError('테스트: 외부 조회 생략')).start()
         patch('requests.post', side_effect=AssertionError('Unexpected live API request')).start()
         self.addCleanup(patch.stopall)
+        self.browser_payload = None
+        patch('predash.watch_storage.browser_store', side_effect=self.browser).start()
         self.at = AppTest.from_file(APP, default_timeout=10)
         self.at.secrets['APP_PASSWORD'] = 'local-test-password-only'
         self.at.session_state.authorized = True
         self.at.session_state.navigation = '연결 설정'
         self.at.run()
         self.assertFalse(self.at.exception)
+
+    def browser(self, *, data, **kwargs):
+        if data['operation'] == 'load':
+            return {'result': dict(request_id=data['request_id'], status='loaded', payload=self.browser_payload)}
+        self.browser_payload = data['payload']
+        return {'result': dict(request_id=data['request_id'], status='saved')}
+
+    def fresh_session(self, authorized=True, secrets=None, page='연결 설정'):
+        at = AppTest.from_file(APP, default_timeout=10)
+        at.secrets['APP_PASSWORD'] = 'local-test-password-only'
+        for key, value in (secrets or {}).items():at.secrets[key] = value
+        if authorized:at.session_state.authorized = True
+        at.session_state.navigation = page
+        return at
 
     def connect(self, mode):
         by_label(self.at.radio, '연결할 환경').set_value(mode)
@@ -96,6 +113,82 @@ class KiwoomUITests(unittest.TestCase):
         self.assertFalse(self.at.exception)
         self.assertNotIn('kiwoom_credentials', self.at.session_state)
         self.assertNotIn('_kiwoom_client_demo', self.at.session_state)
+
+    def test_saved_keys_require_login_then_reload_in_new_session(self):
+        secrets = {'KIWOOM_REAL_APP_KEY': 'dummy-saved-real', 'KIWOOM_REAL_APP_SECRET': 'dummy-saved-secret',
+                   'KIWOOM_DEMO_APP_KEY': 'dummy-saved-demo', 'KIWOOM_DEMO_APP_SECRET': 'dummy-saved-demo-secret',
+                   'KIWOOM_DEFAULT_MODE': 'real'}
+        at = self.fresh_session(False, secrets).run()
+        self.assertFalse(at.exception)
+        self.assertNotIn('kiwoom_credentials', at.session_state)
+        by_label(at.text_input, '대시보드 비밀번호').set_value('local-test-password-only')
+        by_label(at.button, '내 대시보드 열기').click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(set(at.session_state.kiwoom_credentials), {'real', 'demo'})
+        self.assertEqual(at.session_state.kiwoom_active_mode, 'real')
+        self.assertNotIn('dummy-saved-real', '\n'.join(e.value for e in at.info))
+        by_label(at.button, '실전 조회 연결 해제').click().run()
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertNotIn('real', at.session_state.kiwoom_credentials)
+        by_label(at.button, '로그아웃').click().run()
+        self.assertNotIn('kiwoom_credentials', at.session_state)
+        reopened = self.fresh_session(True, secrets).run()
+        self.assertFalse(reopened.exception)
+        self.assertEqual(reopened.session_state.kiwoom_credentials['real']['key'], 'dummy-saved-real')
+
+    def test_incomplete_saved_pair_not_loaded_and_manual_keys_take_priority(self):
+        secrets = {'KIWOOM_REAL_APP_KEY': 'dummy-incomplete',
+                   'KIWOOM_DEMO_APP_KEY': 'dummy-saved-demo', 'KIWOOM_DEMO_APP_SECRET': 'dummy-saved-secret'}
+        at = self.fresh_session(True, secrets)
+        at.session_state.kiwoom_credentials = {'demo': dict(mode='demo', key='dummy-manual', secret='dummy-manual-secret')}
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual(set(at.session_state.kiwoom_credentials), {'demo'})
+        self.assertEqual(at.session_state.kiwoom_credentials['demo']['key'], 'dummy-manual')
+
+    def test_watchlist_survives_new_session_delete_and_logout_without_api_key(self):
+        self.browser_payload = export_backup(['005930'], {'005930': '삼성전자'})
+        at = self.fresh_session(page='관심종목').run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state.watch_names, {'005930': '삼성전자'})
+        by_label(at.text_input, '종목코드로 바로 추가').set_value('000660')
+        by_label(at.button, '종목코드 저장').click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state.watch_codes, ['005930', '000660'])
+        by_label(at.button, '로그아웃').click().run()
+        reopened = self.fresh_session(page='관심종목').run()
+        self.assertFalse(reopened.exception)
+        self.assertEqual(reopened.session_state.watch_codes, ['005930', '000660'])
+        by_label(reopened.button, '관심종목 목록 비우기').click().run()
+        empty = self.fresh_session(page='관심종목').run()
+        self.assertFalse(empty.exception)
+        self.assertEqual(empty.session_state.watch_codes, [])
+
+    def test_watchlist_does_not_write_before_load_or_restore_corrupt_data(self):
+        with patch('predash.watch_storage.browser_store', return_value={'result': None}):
+            at = self.fresh_session(page='관심종목').run()
+            self.assertFalse(at.exception)
+            self.assertNotIn('watch_codes', at.session_state)
+            self.assertNotIn('관심종목에 저장', [b.label for b in at.button])
+        self.browser_payload = 'corrupt-json'
+        at = self.fresh_session(page='관심종목').run()
+        self.assertFalse(at.exception)
+        self.assertEqual(self.browser_payload, 'corrupt-json')
+        self.assertEqual(at.session_state.watch_storage_status, 'invalid')
+
+    def test_explicit_bookmark_and_broker_switch_keep_watchlist_storage(self):
+        self.browser_payload = export_backup(['005930'], {'005930': '삼성전자'})
+        at = self.fresh_session()
+        at.query_params['watch'] = '000660'
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state.watch_codes, ['000660'])
+        nonce = at.session_state.watch_storage_nonce
+        self.at = at
+        self.connect('demo')
+        self.assertEqual(at.session_state.watch_codes, ['000660'])
+        self.assertEqual(at.session_state.watch_storage_nonce, nonce)
 
 
 if __name__ == '__main__':unittest.main()
