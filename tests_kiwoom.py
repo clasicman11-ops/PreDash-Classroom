@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from predash.kiwoom import Kiwoom, BrokerError, KST
+from predash.kiwoom import Kiwoom, BrokerError, KST, response_codes
 from predash.trades import normalize_kiwoom, TradeDataError
 
 
@@ -78,6 +78,54 @@ class KiwoomContracts(unittest.TestCase):
     def test_ip_and_environment_diagnostics(self):
         self.assertIn('IP', str(Kiwoom.result_error(8010)))
         self.assertIn('실전·모의', str(Kiwoom.result_error(8030)))
+
+    @patch('predash.kiwoom.requests.post')
+    def test_wrapped_auth_error_identifies_ip_and_stage_without_echoing_message(self, post):
+        post.return_value = response({'return_code': 3,
+            'return_msg': '인증에 실패했습니다[8010:dummy-key dummy-secret 12345678] <script>bad</script>'})
+        with self.assertRaises(BrokerError) as caught:self.client.authorize()
+        message=str(caught.exception)
+        for expected in ('응답 3 / 세부 8010', '모의투자', '토큰 발급', 'IP'):
+            self.assertIn(expected, message)
+        for private in ('dummy-key', 'dummy-secret', '12345678', '<script>'):
+            self.assertNotIn(private, message)
+
+    @patch('predash.kiwoom.requests.post')
+    def test_wrapped_balance_error_identifies_environment(self, post):
+        self.ready()
+        post.return_value = response({'return_code': '3', 'return_msg': '거부[8030:private-message]'})
+        with self.assertRaisesRegex(BrokerError, '세부 8030.*잔고 조회.*실전·모의'):
+            self.client.balance()
+
+    def test_generic_auth_failure_does_not_invent_a_specific_cause(self):
+        message=str(Kiwoom.result_error(3, 'private-message'))
+        self.assertIn('인증에 실패', message)
+        self.assertIn('원인을 확정할 수 없습니다', message)
+        self.assertNotIn('private-message', message)
+
+    def test_only_known_embedded_codes_are_displayed(self):
+        self.assertEqual(response_codes(3, '[12345:private-account]'), ('3','3'))
+        self.assertEqual(response_codes(3, 'CODE=8011 private-secret'), ('3','8011'))
+        self.assertEqual(response_codes(8030, '[8010:conflicting-message]'), ('8030','8030'))
+        self.assertEqual(response_codes(False), ('미확인','미확인'))
+
+    @patch('predash.kiwoom.requests.post')
+    def test_zero_padded_success_code_is_accepted(self, post):
+        self.ready()
+        post.return_value=response({'return_code':'0000','acnt_evlt_remn_indv_tot':[]})
+        _, data=self.client._post('kt00018', {})
+        self.assertEqual(data['return_code'], '0000')
+
+    @patch('predash.kiwoom.requests.post')
+    def test_wrapped_rate_limit_retries_same_read_only_request(self, post):
+        self.ready()
+        post.side_effect=[response({'return_code':5,'return_msg':'실패[1700:private-message]'}),
+                          response(ok(acnt_evlt_remn_indv_tot=[]))]
+        self.client._post('kt00018', {})
+        self.assertEqual(post.call_count, 2)
+        for call in post.call_args_list:
+            self.assertEqual(call.kwargs['headers']['api-id'], 'kt00018')
+            self.assertTrue(call.args[0].startswith('https://mockapi.kiwoom.com/'))
 
     @patch('predash.kiwoom.requests.post')
     def test_balance_pagination_and_credit_lot_aggregation(self, post):

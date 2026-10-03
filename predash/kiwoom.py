@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 KST = ZoneInfo('Asia/Seoul')
+CLIENT_SCHEMA = 2
 READ_APIS = {
     'au10001': '/oauth2/token',
     'kt00018': '/api/dostk/acnt',
@@ -24,6 +25,30 @@ READ_APIS = {
     'ka20006': '/api/dostk/chart',
 }
 INDEX_CODES = {'0001': '001', '1001': '101'}
+KNOWN_ERROR_CODES = frozenset({
+    1501, 1504, 1505, 1511, 1512, 1513, 1514, 1515, 1516, 1517, 1687,
+    1700, 1701, 1702, 1901, 1902, 1903,
+    8001, 8002, 8003, 8005, 8006, 8009, 8010, 8011, 8012, 8015, 8016,
+    8020, 8030, 8031, 8040, 8050, 8103, 8104,
+})
+
+
+def response_codes(value, message=''):
+    """Read only numeric error codes; never expose provider message contents.
+
+    Kiwoom can wrap a specific error in return_code=3 and return_msg=[8010:...].
+    Unknown message numbers are not treated as codes or shown to the user.
+    """
+    raw = str(value).strip()
+    top = str(int(raw)) if not isinstance(value, bool) and re.fullmatch(r'-?\d{1,6}', raw) else '미확인'
+    specific = top
+    if top != '0' and top not in {str(code) for code in KNOWN_ERROR_CODES}:
+        for match in re.finditer(r'\[(\d{3,5}):|CODE=(\d{3,5})(?!\d)', str(message or '')):
+            code = int(match.group(1) or match.group(2))
+            if code in KNOWN_ERROR_CODES:
+                specific = str(code)
+                break
+    return top, specific
 
 
 class BrokerError(RuntimeError):
@@ -84,8 +109,8 @@ class Kiwoom:
         self._last_request = 0.0
 
     @staticmethod
-    def result_error(code):
-        code = str(code)
+    def result_error(code, message='', *, api_id=None, mode=None):
+        top, code = response_codes(code, message)
         if code in ('1700', '1701', '1702'):
             detail = '호출 한도 초과 · 잠시 후 다시 조회하세요.'
         elif code in ('8010', '8040', '8050', '8103'):
@@ -94,12 +119,25 @@ class Kiwoom:
             detail = '실전·모의 구분과 해당 환경에서 발급한 키가 일치하는지 확인하세요.'
         elif code == '8104':
             detail = '모의투자에서 지원하지 않는 조회입니다. 실전 키로 자동 전환하지 않습니다.'
-        elif code in ('8001', '8002', '8003', '8005', '8006', '8009', '8020'):
-            detail = 'App Key·App Secret, 유효기간, 투자 환경과 허용 IP를 확인하세요.'
+        elif code in ('8001', '8002', '8011', '8012', '8020'):
+            detail = '해당 환경의 REST API App Key·App Secret과 사용 승인을 확인하세요. Windows OpenAPI+ 키와는 다릅니다.'
+        elif code in ('8003', '8005', '8006', '8009', '8015', '8016'):
+            detail = '접근토큰이 유효하지 않습니다. 키움 연결을 해제한 뒤 해당 환경의 키로 다시 연결하세요.'
+        elif code == '3':
+            detail = '인증에 실패했습니다. 세부 코드가 없어 원인을 확정할 수 없습니다. REST API 키·실전/모의 구분·앱 서버 허용 IP를 확인하세요.'
+        elif code in ('1501', '1504', '1505', '1511', '1512', '1513', '1514', '1515', '1516', '1517', '1687'):
+            detail = '조회 요청의 필수값 또는 형식이 거부됐습니다. 표시된 조회 단계와 코드를 확인하세요.'
+        elif code in ('1901', '1902', '1903'):
+            detail = '종목코드 또는 거래소 구분을 확인하세요.'
         else:
             detail = '요청 권한·조회기간·키움 서비스 상태를 확인하세요.'
-        safe_code = code if re.fullmatch(r'-?\d{1,6}', code) else '미확인'
-        return BrokerError(f'키움 응답 {safe_code} · {detail}')
+        label = top + (f' / 세부 {code}' if code != top else '')
+        stages = {'au10001': '토큰 발급', 'kt00018': '잔고 조회', 'kt00001': '예수금 조회',
+                  'kt00007': '체결 조회', 'ka10059': '종목 수급', 'ka10051': '시장 수급',
+                  'ka10081': '종목 차트', 'ka20006': '지수 차트'}
+        context = ' · '.join(part for part in (
+            {'real': '실전', 'demo': '모의투자'}.get(mode), stages.get(api_id)) if part)
+        return BrokerError(f'키움 응답 {label}' + (f' · {context}' if context else '') + f' · {detail}')
 
     def _post(self, api_id, body, *, cont_yn='N', next_key=''):
         if api_id not in READ_APIS:
@@ -128,13 +166,14 @@ class Kiwoom:
                 raise BrokerError('키움 서버에 연결하지 못했습니다. 네트워크와 서버 IP 등록을 확인하세요.') from None
             if not isinstance(data, dict) or 'return_code' not in data:
                 raise BrokerError('키움 응답 형식을 확인하지 못했습니다.')
-            code = str(data['return_code'])
+            top, code = response_codes(data['return_code'], data.get('return_msg'))
             if code in ('1700', '1701', '1702') and attempt < 2:
                 time.sleep(1 + attempt)
                 continue
-            if code != '0':
+            if top != '0':
                 # Do not display return_msg: a provider message can echo credentials.
-                raise self.result_error(code)
+                raise self.result_error(data['return_code'], data.get('return_msg'),
+                                        api_id=api_id, mode=self.mode)
             return response, data
         raise BrokerError('키움 조회를 완료하지 못했습니다.')
 

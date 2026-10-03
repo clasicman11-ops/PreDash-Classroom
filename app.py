@@ -8,9 +8,12 @@ import importlib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import streamlit as st
-from predash.kiwoom import BrokerError
+import predash.kiwoom as kiwoom_module
+if getattr(kiwoom_module, 'CLIENT_SCHEMA', 0) < 2:
+    kiwoom_module = importlib.reload(kiwoom_module)
+BrokerError = kiwoom_module.BrokerError
 import predash.classroom as classroom_module
-if not hasattr(classroom_module, 'broker_client'):
+if not hasattr(classroom_module, 'broker_client') or classroom_module.Kiwoom is not kiwoom_module.Kiwoom:
     classroom_module=importlib.reload(classroom_module)
 account_settings = classroom_module.account_settings
 connection_form = classroom_module.connection_form
@@ -80,7 +83,7 @@ button{min-height:48px!important;border-radius:5px!important}button p{font-size:
 @media(max-width:1100px){.pd-watch-top{grid-template-columns:1fr 1fr}.pd-watch-bottom{grid-template-columns:1fr 1fr}}
 @media(max-width:700px){.block-container{padding:1.2rem 1rem 2rem}h1{font-size:1.8rem!important}.pd-market,.pd-summary{grid-template-columns:1fr}.pd-market>div:first-child{border-right:0;border-bottom:1px solid var(--pd-line)}.pd-summary>div{padding:14px 20px;border-right:0;border-bottom:1px solid #577768}.pd-summary>div:last-child{border-bottom:0}.pd-card-body,.pd-watch-top,.pd-watch-bottom,.pd-holding-head{grid-template-columns:1fr}.pd-card,.pd-evidence,.pd-watch,.pd-holding{padding:18px}.pd-toolbar{margin-bottom:18px}.pd-market>div{padding:18px}.pd-holding-head{gap:12px}}
 
-/* Compact dashboard / UI 2.9 · Kiwoom */
+/* Compact dashboard / UI 2.9.1 · Kiwoom */
 .block-container{padding-top:1.2rem;padding-bottom:1.5rem}
 h1{font-size:1.8rem!important}h2,h3{font-size:1.2rem!important}
 p,li{font-size:16px;line-height:1.5}button p{font-size:16px!important}
@@ -231,7 +234,7 @@ if password and not st.session_state.get('authorized'):
     st.html('<div class="pd-intro">내일의 투자, 오늘 더 명확하게</div>')
     st.subheader('내 계좌를 읽는 개인 분석 공간')
     st.write('계좌·지수·기업 자료를 연결해 오늘 확인할 순서를 정리합니다.')
-    st.caption('UI 2.9 · Kiwoom · 키움 REST API 실전·모의 조회')
+    st.caption('UI 2.9.1 · Kiwoom · 키움 REST API 실전·모의 조회')
     with st.form('login'):
         entered=st.text_input('대시보드 비밀번호',type='password')
         if st.form_submit_button('내 대시보드 열기',type='primary'):
@@ -259,7 +262,7 @@ with st.sidebar:
     large_text=st.toggle('글자 크게 보기',value=st.query_params.get('text','')=='large')
     if large_text:st.query_params['text']='large'
     elif 'text' in st.query_params:del st.query_params['text']
-    st.caption('UI 2.9 · Kiwoom · 본인 계정 · 조회 전용')
+    st.caption('UI 2.9.1 · Kiwoom · 본인 계정 · 조회 전용')
     if password and st.button('로그아웃'):
         st.session_state.clear();st.rerun()
 
@@ -267,7 +270,7 @@ with st.sidebar:
 if large_text:
     st.html('<style>.stApp p,.stApp li{font-size:20px}.pd-watch small,.pd-card-sub,.pd-card-note,.pd-card-body small,.pd-holding-head small{font-size:18px}.pd-v-table,.pd-v-empty,.pd-v-notice,.pd-v-company{font-size:18px}.pd-v-note,.pd-v-legend,.pd-v-table small,.pd-v-notice small,.pd-v-company small{font-size:16px}</style>')
 mode_label='모의투자' if page=='모의투자' else ('매매 연습' if page=='매매 연습' else '실전 조회' if account_settings()['mode']=='real' else '개인 분석')
-st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.9 · Kiwoom</span></div></div>")
+st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.9.1 · Kiwoom</span></div></div>")
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def cached_vix(day):return fetch_vix(day)

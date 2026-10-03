@@ -41,11 +41,26 @@
 - 잔고는 국내주식 KRX 평가 기준입니다. 해외주식·퇴직연금 전용 조회는 이번 변경 범위에 포함되지 않습니다.
 - 자동 테스트는 합성 응답을 사용합니다. 사용자 키와 등록 IP로 실제 인증·잔고 조회를 완료해야 실서비스 연결 검증이 끝납니다.
 
+## 연결 오류 확인 (2026-10-03 보완)
+
+`응답 3`은 인증 실패의 상위 코드입니다. 키움이 메시지 안에 세부 오류 코드를 함께 보내면 앱은 알려진 숫자 코드만 읽고, 원문 메시지나 키·계좌정보를 출력하지 않습니다. 오류에는 실전/모의 환경과 토큰 발급·잔고 조회 등의 단계가 표시됩니다.
+
+| 표시된 세부 코드 | 확인할 항목 |
+| --- | --- |
+| 8010·8040·8050·8103 | 앱 서버 IP와 키움 허용 IP 등록 |
+| 8030·8031 | 실전/모의 선택과 해당 환경에서 발급한 키의 일치 |
+| 8001·8002·8011·8012 | REST API App Key·App Secret 및 사용 승인 |
+| 8003·8005·8006·8009·8015·8016 | 접근토큰 유효성 · 연결 해제 후 해당 환경으로 재연결 |
+| 3만 표시 | 세부 코드가 없어 원인 확정 불가 · 키·환경·허용 IP 확인 |
+
+연결 문제를 문의할 때는 오류 문구만 공유하고 App Key·App Secret·접근토큰·계좌번호를 포함하지 마세요.
+
 ## 원문
 
 - [키움 서비스 이용안내](https://openapi.kiwoom.com/intro/serviceInfo)
 - [키움 API 가이드](https://openapi.kiwoom.com/guide/apiguide)
 - [키움 공식 JSON 명세](https://github.com/Kiwoom-Securities/Kiwoom-REST-API/blob/953e5dbff123f437ab4d11a78a95191a685eb51f/kiwoom/_data/kiwoom_api_spec.json)
+- [키움 공식 오류 분류 코드](https://github.com/Kiwoom-Securities/Kiwoom-REST-API/blob/953e5dbff123f437ab4d11a78a95191a685eb51f/kiwoom/core/errors.py)
 - [Streamlit Community Cloud IP 안내](https://docs.streamlit.io/deploy/streamlit-community-cloud/status)
 - [ipify API](https://www.ipify.org/)
 
