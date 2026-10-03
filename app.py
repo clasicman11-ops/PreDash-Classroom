@@ -231,6 +231,7 @@ if password and not st.session_state.get('authorized'):
     st.html('<div class="pd-intro">내일의 투자, 오늘 더 명확하게</div>')
     st.subheader('내 계좌를 읽는 개인 분석 공간')
     st.write('계좌·지수·기업 자료를 연결해 오늘 확인할 순서를 정리합니다.')
+    st.caption('UI 2.9 · Kiwoom · 키움 REST API 실전·모의 조회')
     with st.form('login'):
         entered=st.text_input('대시보드 비밀번호',type='password')
         if st.form_submit_button('내 대시보드 열기',type='primary'):
