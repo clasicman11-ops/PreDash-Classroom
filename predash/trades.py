@@ -53,6 +53,52 @@ def normalize_kis(rows, skipped=None):
                       'quantity':qty,'price':price,'amount':amount,'source':'KIS 체결'})
     return sorted(fills,key=lambda x:(x['at'],x['code'],0 if x['side']=='buy' else 1))
 
+def normalize_kiwoom(rows, skipped=None):
+    """kt00007 executions; order timestamps, not execution timestamps.
+
+    Conflicting partial executions/corrections are never silently collapsed.
+    """
+    fills=[];seen={}
+    for index,row in enumerate(rows):
+        try:
+            qty=float(str(row.get('cntr_qty')).replace(',',''))
+            if not isfinite(qty) or qty<0:raise ValueError
+        except (TypeError,ValueError):
+            raise TradeDataError('키움 체결수량을 확인할 수 없습니다.') from None
+        if qty==0:continue
+        side_text=str(row.get('io_tp_nm',''))
+        is_buy,is_sell='매수' in side_text,'매도' in side_text
+        if is_buy==is_sell:raise TradeDataError('키움 매수·매도 구분을 확인할 수 없습니다.')
+        correction=str(row.get('mdfy_cncl',''))+' '+side_text
+        if '정정' in correction or '취소' in correction:
+            raise TradeDataError('정정·취소 주문의 체결 합계는 중복 확인이 필요해 분석을 보류합니다.')
+        side='buy' if is_buy else 'sell'
+        code=str(row.get('stk_cd','')).strip().upper()
+        if re.fullmatch(r'A[0-9A-Z]{6}',code):code=code[1:]
+        if not re.fullmatch(r'(?:[0-9A-Z]{6}|[JQ][0-9]{6})',code):
+            if skipped is not None:
+                skipped.append({'row':index+1,'reason':'종목코드 미확인 · 표시 제외'})
+                continue
+            raise TradeDataError('키움 종목코드 형식이 올바르지 않습니다.')
+        day=str(row.get('_query_date',''))
+        clock=str(row.get('ord_tm','')).replace(':','')
+        try:at=datetime.strptime(day+clock,'%Y%m%d%H%M%S')
+        except ValueError:raise TradeDataError('키움 주문일시를 확인할 수 없습니다.') from None
+        price=_positive(row.get('cntr_uv'),'키움 체결단가')
+        order=str(row.get('ord_no','')).strip()
+        if not order:raise TradeDataError('키움 주문번호가 없어 체결 중복을 확인할 수 없습니다.')
+        unique=(day,order,code,side)
+        amounts=(qty,price,qty*price)
+        if unique in seen:
+            if seen[unique]!=amounts:
+                raise TradeDataError('같은 키움 주문에 다른 체결 수량·가격이 있어 합계 계산을 보류합니다.')
+            continue
+        seen[unique]=amounts
+        fills.append({'at':at,'code':code,'name':str(row.get('stk_nm') or code),'side':side,
+                      'quantity':qty,'price':price,'amount':qty*price,
+                      'source':'키움증권 kt00007 · 주문시간 기준'})
+    return sorted(fills,key=lambda x:(x['at'],x['code'],0 if x['side']=='buy' else 1))
+
 def closed_trades(fills):
     """FIFO before fees/taxes. Sells lacking imported purchase inventory stay unmatched."""
     inventory=defaultdict(deque);closed=[];unmatched=[]
@@ -125,5 +171,5 @@ def daily_activity(fills, day, incomplete=False):
             'return_pct':pnl/amount*100 if pnl is not None and amount else None,
             'count':len(todays),'incomplete':incomplete,
             'reason':'일부 체결 제외' if incomplete else '매수 원가 또는 체결 순서 미확인' if not valid else '',
-            'basis':'거래금액: KIS 체결금액 우선, 미제공 시 평균가×수량 · 손익: 평균가 FIFO 계산 · 수수료·세금 미반영'}
+            'basis':'거래금액: 조회된 체결금액 또는 체결단가×수량 · 손익: 주문시간 순 FIFO 추정 · 수수료·세금 미반영'}
 

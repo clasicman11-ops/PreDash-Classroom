@@ -58,7 +58,7 @@ def compact_dashboard(snapshot,reports,matching=None,reason='체결 조회 후 �
     for p in positions[:5]:
         rows.append(f"<tr><td><b>{esc(p['name'])}</b><small>{esc(p['code'])} · {p['quantity']:g}주</small></td><td>{p['value']:,.0f}</td><td>{signed(p['pnl'],'')}</td><td>{p['weight']:.1f}%</td></tr>")
     holdings=("<div class='pd-v-table-wrap'><table class='pd-v-table'><thead><tr><th>종목 / 수량</th><th>평가액 · 원</th><th>평가손익 · 원</th><th>비중</th></tr></thead><tbody>"+''.join(rows)+"</tbody></table></div>") if rows else empty('계좌를 불러오면 보유종목이 표시됩니다.')
-    holding_note=f'평가액 순 상위 5개 · 전체 {len(positions)}종목은 내 계좌에서 확인' if len(positions)>5 else '한국투자증권 잔고 · 조회 시점 기준'
+    holding_note=f'평가액 순 상위 5개 · 전체 {len(positions)}종목은 내 계좌에서 확인' if len(positions)>5 else '키움증권 잔고 · 조회 시점 기준'
     top="<div class='pd-v-top'>"+panel('보유종목 한눈에',holdings,holding_note)+panel('자산 배분',allocation(positions),'국내주식 평가액 기준 · 현금·해외 제외')+"</div>"
     if portfolio_only:return top
     # Same financial source/basis per panel; never combine different companies.
@@ -88,4 +88,5 @@ def compact_dashboard(snapshot,reports,matching=None,reason='체결 조회 후 �
     else:price=empty(reason);price_note='가격 위치는 매수 전 20거래일 범위 기준'
     return (top
             +"<div class='pd-v-bottom'>"+panel('실적 흐름',earnings,earnings_note)+panel('최근 수집 공시',disclosure,'접수일 기준 · 원문 확인')+panel('매수 가격 위치',price,price_note)+"</div>")
+
 
