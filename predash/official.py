@@ -29,6 +29,44 @@ def dart_error(code):
     return DART_ERRORS.get(str(code), "DART가 정상 데이터를 반환하지 않았습니다. 승인 상태와 조회 조건을 확인하세요.")
 
 
+PRICE_ERRORS = {
+    "01": "제공기관 처리 오류입니다. 잠시 후 다시 조회하세요.",
+    "04": "요청 방식과 주식시세 API 주소를 확인하세요.",
+    "05": "제공기관 응답 시간이 초과됐습니다. 잠시 후 다시 조회하세요.",
+    "10": "시세 요청 항목의 이름과 형식을 확인하세요.",
+    "12": "요청한 시세 API가 없습니다. 서비스 주소를 확인하세요.",
+    "20": "금융위원회_주식시세정보 활용신청·승인·중지 상태와 인증키 입력을 확인하세요.",
+    "22": "시세 일일 호출 한도를 초과했습니다. 추가 조회를 멈추고 한도를 확인하세요.",
+    "23": "시세 초당 호출 한도를 초과했습니다. 잠시 조회를 멈춘 뒤 다시 시도하세요.",
+    "29": "호출 서버 IP가 차단됐습니다. 공공데이터포털 활용지원센터에 차단 해제를 문의하세요.",
+    "30": "등록되지 않은 시세 키입니다. 일반 인증키와 주식시세정보 활용신청을 확인하세요.",
+    "31": "시세 키 사용기간이 만료됐습니다. 활용신청의 이용 기간을 확인·갱신하세요.",
+    "32": "호출 IP 제한 오류입니다. 해당 서비스의 IP 제한과 앱 서버 IP를 확인하세요.",
+}
+
+
+def xml_error(content, label, http_status):
+    """Read bounded provider codes, never display raw bodies, keys or URLs."""
+    if len(content) >= 10000 or not content.lstrip().startswith(b"<"):
+        return None
+    try:
+        root = ElementTree.fromstring(content)
+    except ElementTree.ParseError:
+        return None
+    fields = {node.tag.rsplit("}", 1)[-1]: (node.text or "").strip()
+              for node in root.iter() if isinstance(node.tag, str)}
+    reason = fields.get("returnReasonCode", "")
+    code = fields.get("status", "")
+    prefix = f"{label} · HTTP {http_status}" if http_status >= 400 else label
+    if reason and re.fullmatch(r"[0-9]{1,3}", reason) and int(reason) != 0:
+        reason = str(int(reason)).zfill(2)
+        hint = PRICE_ERRORS.get(reason, "서비스 오류입니다. 주식시세정보 활용승인과 인증키를 확인하세요.")
+        return f"{prefix} · 공공데이터 코드 {reason}: {hint}"
+    if code and re.fullmatch(r"[0-9]{3}", code) and code != "000":
+        return f"{prefix} · DART 코드 {code}: {dart_error(code)}"
+    return None
+
+
 def get(url, params):
     path = urlsplit(url).path
     labels = {"corpCode.xml": "DART 기업명·종목코드 목록", "document.xml": "DART 사업보고서 원문",
@@ -40,9 +78,16 @@ def get(url, params):
             if r.status_code in (502,503,504) and attempt == 0:
                 continue
             status = r.status_code
+            # Gateways may return the useful XML error together with HTTP 403.
+            detail = xml_error(r.content, label, status)
+            if detail:
+                raise DataError(detail)
             if status >= 400:
                 if status in (401,403):
-                    hint = "접근이 거절됐습니다. 해당 서비스의 키·활용승인·IP 제한을 확인하세요."
+                    hint = ("접근이 거절됐습니다. DART 키와 승인 상태를 확인하세요."
+                            if label.startswith("DART") else
+                            "접근이 거절됐습니다. 금융위원회_주식시세정보 활용승인과 인증키를 확인하세요.")
+                    hint += " HTTP 상태만으로 IP 차단 여부를 확정할 수 없습니다."
                 elif status == 429:
                     hint = "요청 제한에 걸렸습니다. 잠시 조회를 멈춘 뒤 다시 시도하세요."
                 elif status >= 500:
@@ -50,21 +95,6 @@ def get(url, params):
                 else:
                     hint = "요청을 처리하지 못했습니다. 해당 API의 주소와 설정을 확인하세요."
                 raise DataError(f"{label} · HTTP {status}: {hint}")
-            # Error responses can be XML even when JSON or a ZIP was requested.
-            if r.content.lstrip().startswith(b"<") and len(r.content) < 10000:
-                try:
-                    root = ElementTree.fromstring(r.content)
-                    code = root.findtext(".//status")
-                    if code and code != "000":
-                        raise DataError(label+": "+dart_error(code))
-                    reason = root.findtext(".//returnReasonCode")
-                    if reason:
-                        hints = {"30":"등록되지 않은 시세 키입니다. 일반 인증키와 활용신청을 확인하세요.",
-                                 "31":"시세 키 사용기간을 확인하세요.","32":"허용되지 않은 IP입니다.",
-                                 "22":"시세 조회 한도를 초과했습니다.","20":"요청한 서비스 접근이 거절됐습니다."}
-                        raise DataError(label+": "+hints.get(reason,"서비스가 오류를 반환했습니다. 시세 활용승인과 인증키를 확인하세요."))
-                except ElementTree.ParseError:
-                    pass
             return r
         except requests.Timeout:
             if attempt == 0:
@@ -404,4 +434,3 @@ def demo():
             "years": [{"year": 2023, "revenue": 10000, "profit": 1100, "url": ""},
                       {"year": 2024, "revenue": 12500, "profit": 1600, "url": ""},
                       {"year": 2025, "revenue": 15000, "profit": 2100, "url": ""}]}
-
