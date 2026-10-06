@@ -3,10 +3,10 @@ from unittest.mock import patch
 
 import requests
 
-from predash.official import DataError, Official, get
+from predash.official import DataError, Official, STOCK_PRICE_URL, get
 
 
-PRICE_URL = "https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo"
+PRICE_URL = STOCK_PRICE_URL
 
 
 def response(status, content):

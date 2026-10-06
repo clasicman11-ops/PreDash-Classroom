@@ -44,6 +44,8 @@ PRICE_ERRORS = {
     "32": "호출 IP 제한 오류입니다. 해당 서비스의 IP 제한과 앱 서버 IP를 확인하세요.",
 }
 
+STOCK_PRICE_URL = "https://apis.data.go.kr/1160100/GetStockSecuritiesInfoService_V2/getStockPriceInfo_V2"
+
 
 def xml_error(content, label, http_status):
     """Read bounded provider codes, never display raw bodies, keys or URLs."""
@@ -127,6 +129,22 @@ class Official:
         self.price_rows = {}
         self.annual_cache = {}
 
+    def _price_response(self, params):
+        payload = get(STOCK_PRICE_URL, params).json()
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid price response")
+        # The current V2 specification shows header/body at the top level;
+        # also accept the response envelope used by earlier gateway responses.
+        response = payload.get("response", payload)
+        if not isinstance(response, dict) or not isinstance(response.get("header"), dict):
+            raise ValueError("Missing price response header")
+        code = str(response["header"].get("resultCode", ""))
+        if code not in ("00", "0"):
+            safe_code = str(int(code)).zfill(2) if re.fullmatch(r"[0-9]{1,3}", code) else "미확인"
+            hint = PRICE_ERRORS.get(safe_code, "주식시세정보 활용승인과 인증키를 확인하세요.")
+            raise DataError(f"공공데이터포털 주식시세 · 공공데이터 코드 {safe_code}: {hint}")
+        return response
+
     def dart(self, endpoint, **params):
         try:
             payload = get("https://opendart.fss.or.kr/api/" + endpoint,
@@ -178,9 +196,7 @@ class Official:
         for days in range(10):
             target = (date.today()-timedelta(days=days)).strftime("%Y%m%d")
             try:
-                response = get("https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo", {**params,"basDt":target}).json()["response"]
-                if str(response["header"].get("resultCode")) not in ("00","0"):
-                    raise DataError("공공데이터포털 종목 검색: 시세 서비스 승인과 인증키를 확인하세요.")
+                response = self._price_response({**params,"basDt":target})
                 items = (response.get("body",{}).get("items") or {}).get("item",[])
                 if isinstance(items,dict):
                     items=[items]
@@ -200,12 +216,9 @@ class Official:
         for days in range(10):
             target = (asof - timedelta(days=days)).strftime("%Y%m%d")
             try:
-                payload = get("https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo",
+                response = self._price_response(
                     {"serviceKey": self.price_key, "resultType": "json", "numOfRows": 100,
-                     "basDt": target, "likeSrtnCd": code}).json()
-                response = payload["response"]
-                if str(response["header"].get("resultCode")) not in ("00", "0"):
-                    raise DataError("시세 API 승인·인증 오류")
+                     "basDt": target, "likeSrtnCd": code})
                 items = (response.get("body", {}).get("items") or {}).get("item", [])
                 if isinstance(items, dict):
                     items = [items]
@@ -227,9 +240,7 @@ class Official:
                 "likeSrtnCd":code,"beginBasDt":(asof-timedelta(days=50)).strftime('%Y%m%d'),
                 "endBasDt":(asof+timedelta(days=1)).strftime('%Y%m%d')}
         try:
-            response=get("https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo",params).json()["response"]
-            if str(response['header'].get('resultCode')) not in ('00','0'):
-                raise DataError("공공데이터포털 일별 시세 승인·인증 오류")
+            response=self._price_response(params)
             items=(response.get('body',{}).get('items') or {}).get('item',[])
             if isinstance(items,dict):items=[items]
             if not isinstance(items,list):raise ValueError
