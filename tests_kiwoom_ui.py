@@ -7,7 +7,7 @@ import json
 from streamlit.testing.v1 import AppTest
 from predash.kiwoom import Kiwoom
 from predash.macro import MacroError
-from predash.official import Official
+from predash.official import Official, DataError
 from predash.watchlist import export_backup
 
 APP = Path(__file__).with_name('app.py')
@@ -271,6 +271,46 @@ class KiwoomUITests(unittest.TestCase):
         self.connect('demo')
         self.assertNotIn('watch_query_cache',at.session_state)
         self.assertEqual(at.session_state.watch_codes,['005930','000660','035420'])
+
+    def test_dart_diagnostic_is_explicit_and_clears_on_key_change(self):
+        self.assertTrue(by_label(self.at.button,'DART 연결 진단(조회 전용)').disabled)
+        self.at.session_state.classroom_api_keys={'DART_CRTFC_KEY':'dummy-dart'}
+        with patch.object(Official,'dart',return_value={'status':'000','corp_name':'테스트 기업'}) as request:
+            self.at.run()
+            request.assert_not_called()
+            by_label(self.at.button,'DART 연결 진단(조회 전용)').click().run()
+        self.assertFalse(self.at.exception)
+        self.assertEqual(request.call_count,1)
+        self.assertEqual(request.call_args.args[0],'company.json')
+        self.assertTrue(any('DART 인증 및 기업정보 조회 성공' in x.value for x in self.at.success))
+        self.at.session_state.classroom_api_keys={'DART_CRTFC_KEY':'changed-dart'}
+        self.at.run()
+        self.assertFalse(any('DART 인증 및 기업정보 조회 성공' in x.value for x in self.at.success))
+
+    def test_dart_diagnostic_failure_shows_provider_reason(self):
+        self.at.session_state.classroom_api_keys={'DART_CRTFC_KEY':'dummy-dart'}
+        self.at.run()
+        with patch.object(Official,'dart',side_effect=DataError('DART · 코드 012: 접근 IP 제한')):
+            by_label(self.at.button,'DART 연결 진단(조회 전용)').click().run()
+        self.assertFalse(self.at.exception)
+        self.assertTrue(any('코드 012' in x.value for x in self.at.error))
+
+    def test_evidence_page_explains_missing_dart_key_and_provider_error(self):
+        self.browser_payload=export_backup(['348210'],{'348210':'넥스틴'})
+        item={'code':'348210','name':'넥스틴','metrics':None,'lamp':None,'flow':None,
+              'report':None,'errors':{},'fetched':'2026-10-06 23:53'}
+        at=self.fresh_session(page='투자 근거').run()
+        at.session_state.watch_codes=['348210']
+        at.session_state.watch_names={'348210':'넥스틴'}
+        at.session_state.watch_results={'348210':item}
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any('OpenDART 인증키가 없습니다' in x.value for x in at.warning))
+        item['errors']={'metrics':'DART · 코드 012: 접근 IP 제한'}
+        at.session_state['decision_348210_코스피']={'item':item,'chart':[],'chart_error':''}
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertTrue(any('코드 012' in x.value for x in at.warning))
 
 
 if __name__ == '__main__':unittest.main()

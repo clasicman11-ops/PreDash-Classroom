@@ -130,6 +130,14 @@ def signed(value,suffix=''):
     color='pd-plus' if value>0 else 'pd-minus' if value<0 else 'pd-muted'
     return f"<b class='{color}'>{value:+,.1f}{suffix}</b>" if isinstance(value,float) else f"<b class='{color}'>{value:+,}{suffix}</b>"
 
+def financial_hold_reason(item):
+    if item.get('metrics'):return None
+    error=item.get('errors',{}).get('metrics')
+    if error:return '실적 조회 보류 · '+error
+    if not api_key('DART_CRTFC_KEY'):
+        return '실적 조회 보류 · OpenDART 인증키가 없습니다. 연결 설정에서 DART_CRTFC_KEY를 입력하세요. 공공데이터포털 시세 키와 별도입니다.'
+    return '실적 조회 보류 · 연결 설정에서 DART 연결 진단을 실행한 뒤 이 종목의 자료를 다시 조회하세요.'
+
 def financial_comparison(m):
     if not m:
         st.info('최근 분기 누적·단독 동기 실적 조회 보류');return
@@ -678,6 +686,7 @@ elif page=='관심종목':
                 f"<div><small>일별 종가 · {price_date}</small><b>{price}</b><small><span class='pd-lamp {color}'></span>{state}</small></div>"
                 f"<div>{financial}</div><div><small>일별 수급 · {flow['date'] if flow else '보류'}</small>{flow_html}</div></div>"
                 f"<div class='pd-watch-bottom'><span>{averages}</span><span>자료 조회 {item['fetched']}</span><span>원문·세부 근거는 아래에서 확인</span></div></div>")
+            if financial_hold_reason(item):st.warning(financial_hold_reason(item))
             with st.expander(f"{item['name']} · 판단 그래프와 상세 근거"):
                 stock_evidence_charts(item)
                 st.write(f"종가 기준 {price_date} · KRX 일별 거래 {item['krx']['date'] if item['krx'] else '조회 보류'}")
@@ -758,6 +767,7 @@ elif page=='투자 근거':
     b.metric('영업이익',f"{m['profit']:,.1f}억" if m else '보류')
     c.metric('영업이익 동기 증가율',f"{m['growth_pct']:+.1f}%" if m and m['growth_pct'] is not None else '보류')
     d.metric('영업이익률',f"{m['margin_pct']:,.1f}%" if m and m['margin_pct'] is not None else '보류')
+    if financial_hold_reason(item):st.warning(financial_hold_reason(item))
     if m:st.caption(f"OpenDART · {m['year']}년 {m['quarter']}분기 누적 · {m['basis']} · 전년 동기 누적 비교")
     left,right=st.columns([1.6,1],gap='medium')
     with left:
@@ -877,6 +887,20 @@ elif page=='연결 설정':
     links=st.columns(4)
     for col,(label,desc,key,url,feature) in zip(links,api_specs):
         col.link_button(f'{label} 발급/신청',url,use_container_width=True)
+    st.caption('종가·추세는 공공데이터포털, 기업 실적·공시는 별도의 OpenDART 인증키를 사용합니다.')
+    dart_context=query_context({'dart':api_key('DART_CRTFC_KEY')})
+    if st.button('DART 연결 진단(조회 전용)',disabled=not bool(api_key('DART_CRTFC_KEY')),use_container_width=True):
+        try:
+            with st.spinner('OpenDART 인증과 기업정보 조회를 확인합니다…'):
+                probe=official_client().dart('company.json',corp_code='00126380')
+            if not probe:raise DataError('DART 기업정보 응답이 없습니다. 인증키와 서비스 상태를 확인하세요.')
+            diagnostic={'ok':True,'message':'DART 인증 및 기업정보 조회 성공. 관심종목의 실적은 자료 새로고침으로 별도 조회하세요.'}
+        except DataError as exc:diagnostic={'ok':False,'message':str(exc)}
+        st.session_state.dart_diagnostic={**diagnostic,'context':dart_context}
+    diagnostic=st.session_state.get('dart_diagnostic',{})
+    if diagnostic.get('context')==dart_context:
+        if diagnostic['ok']:st.success(diagnostic['message'])
+        else:st.error(diagnostic['message'])
     if st.session_state.get('classroom_api_keys'):
         if st.button('세션 API 키 모두 지우기',use_container_width=True):
             st.session_state.pop('classroom_api_keys',None)

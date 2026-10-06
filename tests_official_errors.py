@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 from unittest.mock import patch
 
 import requests
@@ -84,6 +85,16 @@ class OfficialErrorTests(unittest.TestCase):
             self.assertEqual(client.price_key, raw)
             self.assertIn("serviceKey=private%2Bkey%2F%3D%3D", prepared.url)
             self.assertNotIn("%252B", prepared.url)
+
+    def test_dart_error_displays_only_safe_status_code(self):
+        for code in ("012", "010", "private-key"):
+            payload = {"status": code, "message": "private-key account-number"}
+            with patch("predash.official.get", return_value=Mock(json=Mock(return_value=payload))):
+                with self.assertRaises(DataError) as caught:
+                    Official(dart_key="private-key").dart("company.json", corp_code="00126380")
+            self.assertIn("DART · 코드", str(caught.exception))
+            self.assertNotIn("private-key", str(caught.exception))
+            self.assertNotIn("account-number", str(caught.exception))
 
 
 if __name__ == "__main__":

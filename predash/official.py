@@ -154,7 +154,9 @@ class Official:
         if payload.get("status") == "013":
             return None
         if payload.get("status") != "000":
-            raise DataError(dart_error(payload.get("status")))
+            raw_code = str(payload.get("status", ""))
+            code = raw_code if re.fullmatch(r"[0-9]{3}", raw_code) else "미확인"
+            raise DataError(f"DART · 코드 {code}: {dart_error(code)}")
         return payload
 
     def corp(self, code):
