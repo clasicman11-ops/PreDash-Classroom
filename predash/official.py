@@ -4,6 +4,7 @@ import re
 import html
 import zipfile
 from datetime import date, timedelta
+from time import monotonic
 from xml.etree import ElementTree
 from urllib.parse import unquote, urlsplit
 
@@ -45,6 +46,8 @@ PRICE_ERRORS = {
 }
 
 STOCK_PRICE_URL = "https://apis.data.go.kr/1160100/GetStockSecuritiesInfoService_V2/getStockPriceInfo_V2"
+CORP_DIRECTORY_TTL = 24 * 60 * 60
+CORP_RETRY_DELAY = 60
 
 
 def xml_error(content, label, http_status):
@@ -120,7 +123,7 @@ def number(value):
 
 
 class Official:
-    def __init__(self, dart_key=None, price_key=None):
+    def __init__(self, dart_key=None, price_key=None, directory_cache=None):
         self.dart_key = (dart_key if dart_key is not None else os.getenv("DART_CRTFC_KEY", "")).strip()
         raw_price_key = price_key if price_key is not None else os.getenv("DATA_GO_KR_SERVICE_KEY", "")
         self.price_key = unquote(str(raw_price_key).strip())
@@ -128,6 +131,9 @@ class Official:
         self.names = {}
         self.price_rows = {}
         self.annual_cache = {}
+        # Keep public company IDs in an app-supplied session/key-isolated cache.
+        # Financial responses stay fresh on each newly created client.
+        self.directory_cache = directory_cache if directory_cache is not None else {}
 
     def _price_response(self, params):
         payload = get(STOCK_PRICE_URL, params).json()
@@ -159,16 +165,52 @@ class Official:
             raise DataError(f"DART · 코드 {code}: {dart_error(code)}")
         return payload
 
-    def corp(self, code):
-        if self.corps is None:
+    def load_corps(self, force=False):
+        cache = self.directory_cache
+        if not force and cache.get("corps") and monotonic() - cache["loaded_at"] < CORP_DIRECTORY_TTL:
+            self.corps, self.names = cache["corps"], dict(cache["names"])
+            return
+        if not force and cache.get("retry_after", 0) > monotonic():
+            raise DataError(cache["error"])
+        try:
             raw = get("https://opendart.fss.or.kr/api/corpCode.xml", {"crtfc_key": self.dart_key}).content
             try:
                 with zipfile.ZipFile(io.BytesIO(raw)) as z:
                     root = ElementTree.fromstring(z.read("CORPCODE.xml"))
-                self.corps = {(n.findtext("stock_code") or "").strip(): n.findtext("corp_code") for n in root.findall("list")}
-                self.names = {(n.findtext("stock_code") or "").strip(): n.findtext("corp_name") for n in root.findall("list") if (n.findtext("stock_code") or "").strip()}
+                rows = [(str(n.findtext("stock_code") or "").strip(),
+                         str(n.findtext("corp_code") or "").strip(), n.findtext("corp_name"))
+                        for n in root.findall("list")]
+                rows = [r for r in rows if re.fullmatch(r"[0-9]{6}", r[0]) and re.fullmatch(r"[0-9]{8}", r[1])]
+                if not rows:raise ValueError
+                corps = {code: corp for code, corp, _ in rows}
+                names = {code: name for code, _, name in rows}
             except (zipfile.BadZipFile, ElementTree.ParseError, KeyError):
-                raise DataError("DART 기업 목록을 읽을 수 없습니다. 키 승인을 확인하세요.") from None
+                raise DataError("DART 기업 목록 응답이 올바른 ZIP/XML 파일이 아닙니다. 연결 설정에서 DART 연결을 진단하세요.") from None
+            except ValueError:
+                raise DataError("DART 기업 목록에 유효한 상장 종목코드가 없습니다.") from None
+        except DataError as exc:
+            cache.update(error=str(exc), retry_after=monotonic() + CORP_RETRY_DELAY)
+            raise
+        cache.update(corps=corps, names=names, loaded_at=monotonic())
+        cache.pop("error", None);cache.pop("retry_after", None)
+        self.corps, self.names = corps, dict(names)
+
+    def bind_corp(self, code, corp_code):
+        """Use a verified single company lookup if the directory is unavailable."""
+        if not re.fullmatch(r"[0-9]{6}", code) or not re.fullmatch(r"[0-9]{8}", corp_code):
+            raise DataError("종목코드는 숫자 6자리, DART 고유번호는 숫자 8자리여야 합니다.")
+        company = self.dart("company.json", corp_code=corp_code)
+        if not company or str(company.get("stock_code", "")).strip() != code:
+            raise DataError("DART 기업정보의 종목코드가 입력한 종목과 다릅니다. 고유번호를 다시 확인하세요.")
+        self.directory_cache.setdefault("overrides", {})[code] = {"corp_code": corp_code, "name": company.get("corp_name") or code}
+        return self.directory_cache["overrides"][code]["name"]
+
+    def corp(self, code):
+        linked = self.directory_cache.get("overrides", {}).get(code)
+        if linked:
+            self.names[code] = linked["name"]
+            return linked["corp_code"]
+        if self.corps is None:self.load_corps()
         if code not in self.corps:
             raise DataError("상장 종목코드를 찾지 못했습니다.")
         return self.corps[code]

@@ -86,7 +86,8 @@ class KiwoomUITests(unittest.TestCase):
         broker_inputs=[e.label for e in self.at.text_input if e.label.startswith('키움')]
         self.assertEqual(broker_inputs, ['키움 App Key','키움 App Secret'])
         for element in self.at.text_input:
-            self.assertEqual(element.proto.type, 1)
+            if element.label.startswith('키움') or element.label.endswith('API Key'):
+                self.assertEqual(element.proto.type, 1)
 
     def test_connected_demo_refresh_and_main_account_render(self):
         self.connect('demo')
@@ -294,6 +295,41 @@ class KiwoomUITests(unittest.TestCase):
             by_label(self.at.button,'DART 연결 진단(조회 전용)').click().run()
         self.assertFalse(self.at.exception)
         self.assertTrue(any('코드 012' in x.value for x in self.at.error))
+
+    def test_dart_directory_reload_is_explicit_and_key_change_clears_cache(self):
+        self.at.session_state.classroom_api_keys={'DART_CRTFC_KEY':'dummy-dart'}
+        with patch.object(Official,'load_corps') as load:
+            self.at.run()
+            load.assert_not_called()
+            by_label(self.at.button,'DART 기업목록 다시 불러오기').click().run()
+        load.assert_called_once_with(force=True)
+        self.assertFalse(self.at.exception)
+        saved=self.at.session_state['_dart_directory']
+        saved['cache']['overrides']={'005930':{'corp_code':'00126380','name':'테스트 기업'}}
+        self.at.session_state['_dart_directory']=saved
+        with patch.object(Official,'dart',return_value={'status':'000'}):
+            by_label(self.at.button,'DART 연결 진단(조회 전용)').click().run()
+        self.assertIn('overrides',self.at.session_state['_dart_directory']['cache'])
+        self.at.session_state.classroom_api_keys={'DART_CRTFC_KEY':'changed-dart'}
+        with patch.object(Official,'dart',return_value={'status':'000'}):
+            by_label(self.at.button,'DART 연결 진단(조회 전용)').click().run()
+        self.assertNotIn('overrides',self.at.session_state['_dart_directory']['cache'])
+
+    def test_dart_direct_company_connection_checks_stock_code(self):
+        self.at.session_state.classroom_api_keys={'DART_CRTFC_KEY':'dummy-dart'}
+        self.at.run()
+        by_label(self.at.text_input,'직접 연결할 종목코드').set_value('005930')
+        by_label(self.at.text_input,'DART 고유번호').set_value('00126380')
+        with patch.object(Official,'dart',return_value={'stock_code':'000660'}):
+            by_label(self.at.button,'DART 기업 확인 후 직접 연결').click().run()
+        self.assertFalse(self.at.exception)
+        self.assertTrue(any('종목코드가 입력한 종목과 다릅니다' in e.value for e in self.at.error))
+        self.assertNotIn('overrides',self.at.session_state['_dart_directory']['cache'])
+        with patch.object(Official,'dart',return_value={'stock_code':'005930','corp_name':'테스트 기업'}):
+            by_label(self.at.button,'DART 기업 확인 후 직접 연결').click().run()
+        self.assertFalse(self.at.exception)
+        self.assertTrue(any('직접 연결 완료' in e.value for e in self.at.success))
+        self.assertEqual(self.at.session_state['_dart_directory']['cache']['overrides']['005930']['corp_code'],'00126380')
 
     def test_evidence_page_explains_missing_dart_key_and_provider_error(self):
         self.browser_payload=export_backup(['348210'],{'348210':'넥스틴'})

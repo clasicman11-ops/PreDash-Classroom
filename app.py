@@ -118,7 +118,12 @@ def api_key(name):
     return str(st.session_state.get('classroom_api_keys',{}).get(name) or os.getenv(name,'')).strip()
 
 def official_client():
-    return Official(dart_key=api_key('DART_CRTFC_KEY'),price_key=api_key('DATA_GO_KR_SERVICE_KEY'))
+    context=query_context({'dart':api_key('DART_CRTFC_KEY')})
+    saved=st.session_state.get('_dart_directory',{})
+    if saved.get('context')!=context:
+        saved={'context':context,'cache':{}}
+        st.session_state['_dart_directory']=saved
+    return Official(dart_key=api_key('DART_CRTFC_KEY'),price_key=api_key('DATA_GO_KR_SERVICE_KEY'),directory_cache=saved['cache'])
 
 def api_key_source(name):
     if st.session_state.get('classroom_api_keys',{}).get(name):return '현재 세션'
@@ -901,6 +906,27 @@ elif page=='연결 설정':
     if diagnostic.get('context')==dart_context:
         if diagnostic['ok']:st.success(diagnostic['message'])
         else:st.error(diagnostic['message'])
+    if st.button('DART 기업목록 다시 불러오기',disabled=not bool(api_key('DART_CRTFC_KEY')),use_container_width=True):
+        try:
+            with st.spinner('DART 기업명·종목코드 목록을 다운로드합니다…'):
+                official_client().load_corps(force=True)
+            st.success('DART 기업목록 준비 완료. 관심종목의 자료를 다시 조회하세요.')
+        except DataError as exc:st.error(str(exc))
+    st.caption('기업목록은 현재 접속에서 24시간 재사용합니다. 실패 후 60초 동안 자동 재요청을 멈춥니다. 위 버튼은 즉시 다시 시도합니다.')
+    with st.expander('기업목록 시간 초과 시 · DART 고유번호로 직접 연결'):
+        st.write('전체 목록 다운로드가 실패해도, 기업개황 조회가 가능하면 해당 종목의 실적·공시를 직접 연결할 수 있습니다.')
+        st.caption('DART 고유번호는 인증키와 다릅니다. DART에서 확인한 기업 고유번호를 입력하면 기업개황의 종목코드와 일치하는지 검증합니다. 직접 연결은 현재 접속에만 유지됩니다.')
+        st.link_button('DART 회사 검색','https://dart.fss.or.kr/')
+        with st.form('dart_direct_company'):
+            stock=st.text_input('직접 연결할 종목코드',max_chars=6)
+            corp=st.text_input('DART 고유번호',max_chars=8)
+            connect_corp=st.form_submit_button('DART 기업 확인 후 직접 연결',disabled=not bool(api_key('DART_CRTFC_KEY')))
+        if connect_corp:
+            try:
+                with st.spinner('DART 기업정보와 종목코드를 확인합니다…'):
+                    name=official_client().bind_corp(stock.strip(),corp.strip())
+                st.success(f'{name} · {stock.strip()} 직접 연결 완료. 투자 근거에서 근거 자료 새로고침을 누르세요.')
+            except DataError as exc:st.error(str(exc))
     if st.session_state.get('classroom_api_keys'):
         if st.button('세션 API 키 모두 지우기',use_container_width=True):
             st.session_state.pop('classroom_api_keys',None)
